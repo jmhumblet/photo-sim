@@ -220,19 +220,22 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
   <div class="card">
     <h2>Batterie</h2>
     <label>Options de batterie — capacité <b>nominale</b> et prix du devis</label>
-    <table><thead><tr><th>Capacité (kWh)</th><th>Prix TVAC (€)</th><th>Utile</th><th>€/kWh</th><th></th></tr></thead>
+    <table><thead><tr><th>Option</th><th>Nominale</th><th>Utile</th><th>Prix TVAC</th>
+    <th>DoD</th><th>€/kWh utile</th><th></th></tr></thead>
     <tbody id="battBody"></tbody></table>
     <button onclick="addBatt()" class="sm" style="margin-top:6px">+ Ajouter une option</button>
-    <div class="row" style="margin-top:8px">
-      <div><label>Profondeur de décharge (%)</label><input id="battDod" type="number" value="90" step="1"></div>
-      <div></div>
-    </div>
+    <p class="hint" id="battAlerte"></p>
     <p class="hint">Reportez le <b>prix de chaque option tel qu'il figure sur le devis</b>, remise
     et TVA comprises. La colonne €/kWh révèle si le fournisseur pratique une dégressivité — et
-    permet de comparer deux offres dont les capacités ne coïncident pas.<br>
-    <b>Limite :</b> la profondeur de décharge est unique pour toute la liste. Si vous comparez des
-    marques aux valeurs différentes — 90 % chez certains, 95 % chez d'autres — saisissez celle du
-    produit qui vous intéresse le plus, ou dupliquez le scénario.</p>
+    permet de comparer deux offres dont les capacités ne coïncident pas. <b>Nommez chaque ligne</b>
+    si vous mélangez plusieurs fournisseurs : rien n'oblige le prix à croître avec la capacité
+    lorsque les offres viennent de sociétés différentes.<br>
+    <b>Capacité nominale et capacité utile se lisent toutes deux sur la fiche technique</b> — ne
+    calculez rien. Certains fabricants annoncent « 16,07 kWh dont 15,27 utilisables », d'autres
+    « 5,76 kWh à 90 % de profondeur de décharge » : dans le premier cas recopiez les deux nombres,
+    dans le second multipliez une fois. La colonne DoD affiche le rapport et vire au rouge s'il
+    sort de la plage plausible — c'est votre garde-fou contre le double comptage.<br>
+    <b>Seule la capacité utile entre dans la simulation.</b> La nominale ne sert qu'au contrôle.</p>
     <div class="row">
       <div><label>Rendement aller-retour</label><input id="battEta" type="number" value="0.90" step="0.01"></div>
       <div><label>Perte de capacité (%/an)</label><input id="battDegr" type="number" value="1.5" step="0.1"></div>
@@ -263,6 +266,10 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
       <div><label>€ / CV</label><input id="cvPrice" type="number" value="72" step="1"></div>
       <div><label>Durée (ans)</label><input id="cvYears" type="number" value="10" step="1"></div>
     </div>
+    <p class="hint">À Bruxelles, le taux d'octroi dépend de la puissance : 2,055 CV/MWh en dessous
+    de 5 kWc, 1,739 au-delà, pour une mise en service postérieure au 1er avril 2026. Le taux est
+    figé à la date du contrôle RGIE et vaut dix ans. <b>Adaptez-le si vous changez le nombre de
+    panneaux</b> — le simulateur ne le fait pas automatiquement.</p>
     <p class="hint"><b>Actualisation.</b> Un euro économisé en 2050 vaut moins qu'un euro
     d'aujourd'hui, puisque celui-ci pourrait être placé entre-temps. Le taux d'actualisation
     est le rendement de ce placement alternatif : il sert à ramener tous les gains futurs en
@@ -296,7 +303,10 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
     </div>
     <p class="hint">L'horizon est la durée sur laquelle TRI, VAN et cumul sont calculés. Vingt-cinq
     ans correspond à la garantie de performance usuelle des panneaux. Le raccourcir pénalise
-    lourdement la batterie, dont l'essentiel du bénéfice arrive après son remplacement.</p>
+    lourdement la batterie, dont l'essentiel du bénéfice arrive après son remplacement.<br>
+    <b>Le matériel est supposé sans valeur au terme</b>, alors que des panneaux produisent encore
+    au-delà de trente ans. Sur un horizon court, l'installation est donc nettement sous-évaluée :
+    si vous envisagez de vendre, la valeur ajoutée au bien n'est pas comptée ici.</p>
   </div>
 
 </div>
@@ -333,6 +343,10 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
     l'investissement, sans actualisation. C'est le plus intuitif, mais il ignore tout ce qui se
     passe ensuite — deux options peuvent se rembourser en cinq ans et ne rien rapporter du tout
     de la même façon sur vingt-cinq.</p></details>
+    <p class="hint"><b>« Coût énergie »</b> ne comprend que la part variable : les kWh prélevés
+    moins les kWh injectés. Les redevances fixes — abonnement, obligations de service public — en
+    sont exclues, car elles sont identiques dans toutes les colonnes et ne départagent donc rien.
+    Votre facture réelle sera plus élevée d'une centaine d'euros par an.</p>
     <p class="hint">Le gain annuel se mesure par rapport à la même maison sans panneaux ni batterie. Les certificats verts portent sur la production brute et sont identiques dans toutes les colonnes — ils ne départagent donc pas les options.</p>
   </div>
 
@@ -407,7 +421,7 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
 "use strict";
 const Q=96, $=id=>document.getElementById(id);
 let MC_S=0, MC=null;
-let BATT=[{nom:5.8,prix:2000},{nom:11.5,prix:3800},{nom:16,prix:4800}];
+let BATT=[{lab:'Petite',nom:5.8,util:5.2,prix:2000},{lab:'Moyenne',nom:11.5,util:10.4,prix:3800},{lab:'Grande',nom:16,util:14.4,prix:4800}];
 const PAL=['#9aa7b8','#c07a3e','#4a6fa5','#7a5c9e','#2e7d8a','#5a7d2e','#b03a2e','#c9a227','#8a6f4a'];
 const fmt=(n,d=0)=>n.toLocaleString('fr-BE',{minimumFractionDigits:d,maximumFractionDigits:d});
 
@@ -437,16 +451,28 @@ let APPL=[
  {n:'Clim — nuit',      w:420,  h:9,   start:22,   freq:1, s:['ete'],                 flex:false},
  {n:'Clim — journée',   w:210,  h:4,   start:14,   freq:1, s:['ete'],                 flex:false}
 ];
-function renderBatt(){
-  const dod=Math.max(10,Math.min(100,+($('battDod').value||90)))/100;
-  $('battBody').innerHTML=BATT.map((b,i)=>`<tr>
-    <td><input type="number" value="${b.nom}" step="0.1" oninput="BATT[${i}].nom=+this.value;schedule()"></td>
-    <td><input type="number" value="${b.prix}" step="50" oninput="BATT[${i}].prix=+this.value;schedule()"></td>
-    <td class="num">${fmt(b.nom*dod,2)} kWh</td>
-    <td class="num">${b.nom>0?fmt(b.prix/b.nom):'—'} €</td>
-    <td><button class="sm" onclick="BATT.splice(${i},1);renderBatt();schedule()">×</button></td></tr>`).join('');
+function dodAlerte(b){
+  if(!(b.nom>0)) return '';
+  const r=b.util/b.nom;
+  return (r>1||r<0.5) ? 'color:var(--bad);font-weight:600' : '';
 }
-function addBatt(){ BATT.push({nom:5,prix:1800}); renderBatt(); schedule(); }
+function renderBatt(){
+  $('battBody').innerHTML=BATT.map((b,i)=>`<tr>
+    <td><input type="text" value="${(b.lab||'').replace(/"/g,'&quot;')}" placeholder="nom / fournisseur"
+        oninput="BATT[${i}].lab=this.value;schedule()" style="font-size:12px;text-align:left"></td>
+    <td><input type="number" value="${b.nom}" step="0.1" oninput="BATT[${i}].nom=+this.value;schedule()"></td>
+    <td><input type="number" value="${b.util}" step="0.1" oninput="BATT[${i}].util=+this.value;schedule()"></td>
+    <td><input type="number" value="${b.prix}" step="50" oninput="BATT[${i}].prix=+this.value;schedule()"></td>
+    <td class="num" style="${dodAlerte(b)}">${b.nom>0?fmt(b.util/b.nom*100,0)+' %':'—'}</td>
+    <td class="num">${b.util>0?fmt(b.prix/b.util):'—'} €</td>
+    <td><button class="sm" onclick="BATT.splice(${i},1);renderBatt();schedule()">×</button></td></tr>`).join('');
+  const mauvais=BATT.filter(b=>b.nom>0&&(b.util>b.nom||b.util<b.nom*0.5));
+  $('battAlerte').innerHTML = mauvais.length
+    ? `<span style="color:var(--bad)">Vérifiez ${mauvais.map(b=>b.lab||b.nom+' kWh').join(', ')} :
+       une profondeur de décharge hors de la plage 50–100 % signale presque toujours une confusion
+       entre capacité nominale et capacité utile.</span>` : '';
+}
+function addBatt(){ BATT.push({lab:'',nom:5,util:4.5,prix:1800}); renderBatt(); schedule(); }
 function renderAppl(){
   $('applList').innerHTML=APPL.map((a,i)=>`<div class="appl">
    <div class="hd"><input type="text" value="${a.n}" oninput="APPL[${i}].n=this.value">
@@ -859,7 +885,7 @@ function mcStart(){
   cfg._pHeat=+($('mcHeat').value||10)/123;
   cfg._heatMul=+($('mcHeatMul').value||2.5);
   prepDT(cfg);
-  const nom=+($('mcCap').value||5.8), capU=nom*cfg.battDod/100;
+  const capU=+($('mcCap').value||5.22), nom=capU;
   MCstate.draws=+($('mcN').value||600);
   MCstate.running=true; mcInit();
   $('mcGo').textContent='arrêter'; $('mcGo').onclick=mcStop;
@@ -893,9 +919,9 @@ function mcStop(){ MCstate.running=false; $('mcGo').textContent='reprendre'; $('
 function mcRender(cfg,nom,capU){
   if(MCstate.done<2) return;
   const ref=PROFILS_MC[0].k;
-  let h=`<table><thead><tr><th>Profil d'habitudes</th><th>Facture sans batterie</th>
+  let h=`<table><thead><tr><th>Profil d'habitudes</th><th>Coût énergie sans batterie</th>
     <th>Écart au rigoureux</th><th>Fourchette P10–P90</th><th>Gain de la batterie</th>
-    <th>Facture avec batterie</th></tr></thead><tbody>`;
+    <th>Coût énergie avec batterie</th></tr></thead><tbody>`;
   const base=moy(MCstate.res[ref].bill0);
   for(const p of PROFILS_MC){
     const R=MCstate.res[p.k];
@@ -917,7 +943,7 @@ function mcRender(cfg,nom,capU){
   const W=680, L=118, R=58, BAND=66, TOP=34;
   const X=v=>L+(W-L-R)*(v-mn+pad)/Math.max(1e-6,(mx-mn)+2*pad);
   const H=TOP+PROFILS_MC.length*BAND+30;
-  let g=`<svg viewBox="0 0 ${W} ${H}" role="img"><title>Dispersion de la facture annuelle</title>`;
+  let g=`<svg viewBox="0 0 ${W} ${H}" role="img"><title>Dispersion du coût annuel de l'énergie</title>`;
   g+=`<rect x="${L}" y="14" width="10" height="10" fill="var(--accent)" opacity=".3"/>
       <text x="${L+15}" y="23" font-size="11" fill="var(--muted)">sans batterie</text>
       <rect x="${L+118}" y="14" width="10" height="10" fill="#2e7d8a" opacity=".3"/>
@@ -1002,7 +1028,7 @@ const MC_LAB={
  ixHiver:['Indice — hiver',''],
  evKwh:['Véhicule — consommation','kWh/an'], evKw:['Véhicule — borne','kW'],
  evDay:['Véhicule — part rechargée en journée','%'],
- battDod:['Profondeur de décharge','%'], battEta:['Rendement aller-retour',''],
+ battEta:['Rendement aller-retour',''],
  battDegr:['Perte de capacité','%/an'], battKw:['Puissance de charge max','kW'],
  battIdle:['Veille du système de stockage','W'],
  pElec:['Prix marginal évité','€/kWh'], pInj:['Tarif d\'injection','€/kWh'],
@@ -1018,7 +1044,7 @@ const MC_GRP=[
  ['Production',['nPan','wPan','refSud','tilt','azA','azB','shA','pvA','pvB','yieldKwc','invKw']],
  ['Consommation',['baseKwh','baseDay','ixEte','ixInter','ixHiver']],
  ['Véhicule électrique',['evKwh','evKw','evDay']],
- ['Batterie',['battDod','battEta','battDegr','battKw','battIdle']],
+ ['Batterie',['battEta','battDegr','battKw','battIdle']],
  ['Prix et incitants',['pElec','pInj','infl','disc','cvRate','cvPrice','cvYears']],
  ['Investissement',['capexPv','degr','invYear','invCost','batYear','batPct','maint','horizon']],
  ['Météo',['spell']]
@@ -1054,9 +1080,9 @@ function resumeParams(cfg,snap){
       <td class="num">${d.doy}</td><td class="num">${d.cloud} %</td>
       <td class="num">${d.clow} %</td></tr>`).join('')+`</tbody></table>`;
   h+=`<h3 style="font-size:13px;font-weight:600;margin:14px 0 4px">Options de batterie</h3>
-    <table><thead><tr><th>Capacité nominale</th><th>Prix TVAC</th><th>Capacité utile</th>
+    <table><thead><tr><th>Option</th><th>Capacité nominale</th><th>Prix TVAC</th><th>Capacité utile</th>
     <th>€ / kWh nominal</th></tr></thead><tbody>`
-    +(snap.BATT||[]).map(b=>`<tr><td>${b.nom} kWh</td><td class="num">${fmt(b.prix)} €</td>
+    +(snap.BATT||[]).map(b=>`<tr><td>${b.lab||'—'}</td><td>${b.nom} kWh</td><td class="num">${fmt(b.prix)} €</td>
       <td class="num">${fmt(b.nom*cfg.battDod/100,2)} kWh</td>
       <td class="num">${b.nom>0?fmt(b.prix/b.nom):'—'} €</td></tr>`).join('')
     +`</tbody></table>`;
@@ -1101,7 +1127,7 @@ function openMC(){
     <div class="row3">
       <div><label>Nombre de tirages</label><input id="mcN" type="number" value="600" step="50"></div>
       <div><label>Jours simulés par saison et par tirage</label><input id="mcS" type="number" value="40" step="10"></div>
-      <div><label>Capacité testée (kWh nominaux)</label><input id="mcCap" type="number" value="5.8" step="0.1"></div>
+      <div><label>Capacité testée (kWh utiles)</label><input id="mcCap" type="number" value="5.22" step="0.1"></div>
     </div>
     <div class="row3">
       <div><label>Jours d'absence par an</label><input id="mcAway" type="number" value="14" step="1"></div>
@@ -1135,7 +1161,7 @@ document.getElementById('mcGo').onclick=mcStart;
 
 /* ---------- scénarios : stockage local, presets, import/export ---------- */
 const LSKEY='simu-pv-v1';
-const PRESET_JIM={BATT:[{nom:5.8,prix:1966},{nom:11.5,prix:3898},{nom:16.07,prix:3384}], inp:{"nPan": "14", "wPan": "450", "yieldKwc": "870", "invKw": "5", "refSud": "1050", "tilt": "35", "azA": "-90", "azB": "90", "shA": "50", "pvA": "850.4", "pvB": "834.06", "spell": "2.5", "baseKwh": "1000", "baseDay": "28", "ixEte": "0.92", "ixInter": "1.00", "ixHiver": "1.14", "evKwh": "1800", "evKw": "7.4", "evDay": "50", "battDod": "90", "battEta": "0.90", "battDegr": "1.5", "battKw": "5", "battIdle": "25", "pElec": "0.3818", "pInj": "0.040", "infl": "3", "disc": "3", "cvRate": "1.739", "cvPrice": "72", "cvYears": "10", "capexPv": "5102", "degr": "0.4", "invYear": "14", "invCost": "1500", "batYear": "15", "batPct": "50", "maint": "35", "horizon": "25", "debounce": "4"}, chk:{"evOn": false}, DT:[
+const PRESET_JIM={BATT:[{lab:'Energreen — 1 module EP6',nom:5.76,util:5.18,prix:1966},{lab:'Energreen — 2 modules EP6',nom:11.52,util:10.37,prix:3898},{lab:'Reno.Energy — Dyness PowerBrick',nom:16.07,util:15.27,prix:3384}], inp:{"nPan": "14", "wPan": "450", "yieldKwc": "870", "invKw": "5", "refSud": "1050", "tilt": "35", "azA": "-90", "azB": "90", "shA": "50", "pvA": "850.4", "pvB": "834.06", "spell": "2.5", "baseKwh": "1000", "baseDay": "28", "ixEte": "0.92", "ixInter": "1.00", "ixHiver": "1.14", "evKwh": "1800", "evKw": "7.4", "evDay": "50", "battEta": "0.90", "battDegr": "1.5", "battKw": "5", "battIdle": "25", "pElec": "0.3818", "pInj": "0.040", "infl": "3", "disc": "3", "cvRate": "1.739", "cvPrice": "72", "cvYears": "10", "capexPv": "5102", "degr": "0.4", "invYear": "14", "invCost": "1500", "batYear": "15", "batPct": "50", "maint": "35", "horizon": "25", "debounce": "4"}, chk:{"evOn": false}, DT:[
  {k:'ete',   n:'Été',           days:123, share:58, doy:180, cloud:40, clow:35},
  {k:'inter', n:'Intermédiaire', days:122, share:34, doy:81, cloud:50, clow:25},
  {k:'hiver', n:'Hiver',         days:120, share:10, doy:340, cloud:70, clow:40}
@@ -1150,12 +1176,12 @@ const PRESET_JIM={BATT:[{nom:5.8,prix:1966},{nom:11.5,prix:3898},{nom:16.07,prix
  {n:'Clim — journée',   w:210,  h:4,   start:14,   freq:1, s:['ete'],                 flex:false}
 ]};
 const DEFAUT_GENERIQUE={
- BATT:[{nom:5.8,prix:2000},{nom:11.5,prix:3800},{nom:16,prix:4800}],
+ BATT:[{lab:'Petite',nom:5.8,util:5.2,prix:2000},{lab:'Moyenne',nom:11.5,util:10.4,prix:3800},{lab:'Grande',nom:16,util:14.4,prix:4800}],
  inp:{nPan:'14',wPan:'450',refSud:'1000',tilt:'35',azA:'-90',azB:'90',shA:'50',
       pvA:'',pvB:'',yieldKwc:'830',invKw:'5',spell:'2.5',
       baseKwh:'1400',baseDay:'28',ixEte:'0.92',ixInter:'1.00',ixHiver:'1.14',
       evKwh:'2500',evKw:'7.4',evDay:'50',
-      battDod:'90',battEta:'0.90',
+      battEta:'0.90',
       battDegr:'1.5',battKw:'5',battIdle:'25',
       pElec:'0.3800',pInj:'0.040',infl:'3',disc:'3',cvRate:'1.739',cvPrice:'72',cvYears:'10',
       capexPv:'6000',degr:'0.4',invYear:'14',invCost:'1500',batYear:'15',batPct:'50',maint:'35',horizon:'25',
@@ -1246,7 +1272,7 @@ function readCfg(){
   const c={};
   ['baseKwh','baseDay','ixEte','ixInter','ixHiver','invKw','battEta','battKw','battIdle','pElec','pInj','infl','disc',
    'cvRate','cvPrice','cvYears','capexPv','degr','invYear','invCost','batYear','batPct',
-   'maint','horizon','evKwh','evKw','evDay','nPan','wPan','yieldKwc','spell','tilt','azA','azB','shA','battDod','battDegr','refSud'].forEach(k=>c[k]=+$(k).value);
+   'maint','horizon','evKwh','evKw','evDay','nPan','wPan','yieldKwc','spell','tilt','azA','azB','shA','battDegr','refSud'].forEach(k=>c[k]=+$(k).value);
   c.evOn=$('evOn').checked;
   c.pvA=+($('pvA').value||0); c.pvB=+($('pvB').value||0);
   c.mesure = c.pvA>0 && c.pvB>0;
@@ -1293,9 +1319,9 @@ function run(){
       <b>${sugg} kWh/kWc</b>${ok?'' : ` — <span style="color:var(--warn)">votre saisie de ${fmt(cfg.yieldKwc,0)} s'en écarte nettement</span>`}.`;
   }
 
-  const dod=Math.max(10,Math.min(100,cfg.battDod))/100;
-  const opts=[{nom:0,prix:0}].concat(BATT.filter(b=>b.nom>0).sort((a,b)=>a.nom-b.nom));
-  const nomCaps=opts.map(o=>o.nom), prixOpt=opts.map(o=>o.prix), caps=nomCaps.map(n=>n*dod);
+  const opts=[{lab:'',nom:0,util:0,prix:0}]
+    .concat(BATT.filter(b=>b.nom>0&&b.util>0).sort((a,b)=>a.util-b.util));
+  const nomCaps=opts.map(o=>o.nom), prixOpt=opts.map(o=>o.prix), caps=opts.map(o=>o.util);
   const ref=simYear({...cfg,invKw:0,evOn:cfg.evOn},0);
   // référence sans PV : toute la consommation est achetée
   const refCost=refConso(cfg)*cfg.pElec;
@@ -1304,10 +1330,13 @@ function run(){
     const t=simYear(cfg,cap);
     const cost=t.imp*cfg.pElec - t.exp*cfg.pInj;
     return {cap,nom:nomCaps[i],t,cost,gain:refCost-cost,
-            prix:prixOpt[i], capex:cfg.capexPv+prixOpt[i],
+            lab:opts[i].lab||'', prix:prixOpt[i], capex:cfg.capexPv+prixOpt[i],
             auto:(t.prod-t.exp-t.clip-(t.ch-t.dis))/t.prod};
   });
-  // courbe gain(capacité) : sert à répercuter le vieillissement de la batterie
+  // courbe gain(capacité) : sert à répercuter le vieillissement de la batterie.
+  // L'interpolation est linéaire entre les capacités comparées, alors que la vraie courbe
+  // est concave : le vieillissement est donc légèrement surestimé. Ajouter des options
+  // intermédiaires dans la liste améliore la précision.
   const pts=raw.map(r=>[r.cap,r.gain]).sort((a,b)=>a[0]-b[0]);
   const gainAt=c=>{
     if(c<=pts[0][0]) return pts[0][1];
@@ -1319,7 +1348,8 @@ function run(){
   };
   RESULTS=raw.map(r=>({...r,e:economics(r.gain,r.capex,cfg,r.cap,gainAt,r.prix)}));
   $('battHint').innerHTML=opts.filter(o=>o.nom>0).map(o=>
-    `${fmt(o.nom,1)} kWh → <b>${fmt(o.nom*dod,2)} utiles</b> pour ${fmt(o.prix)} €`).join(' &nbsp;·&nbsp; ');
+    `${o.lab||fmt(o.nom,1)+' kWh'} : <b>${fmt(o.util,2)} kWh utiles</b> pour ${fmt(o.prix)} €
+     (${fmt(o.prix/o.util)} €/kWh utile)`).join(' &nbsp;·&nbsp; ');
   $('consHint').textContent=`Consommation annuelle simulée : ${fmt(refConso(cfg))} kWh`;
   drawCmp(cfg,refCost); drawTabs(); drawChart(); drawCF(cfg);
 }
@@ -1338,13 +1368,13 @@ function refConso(cfg){
 function drawCmp(cfg,refCost){
   const best=Math.max(...RESULTS.map(r=>r.e.npv));
   let h=`<table><thead><tr><th>Batterie</th><th>Surcoût</th><th>Investis.</th>
-    <th>Autoconso.</th><th>Facture/an</th><th>Gain/an</th><th>Retour</th><th>TRI sur ${fmt(cfg.horizon,0)} ans</th>
+    <th>Autoconso.</th><th>Coût énergie/an</th><th>Gain/an</th><th>Retour</th><th>TRI sur ${fmt(cfg.horizon,0)} ans</th>
     <th>VAN à ${fmt(cfg.disc,0)} % sur ${fmt(cfg.horizon,0)} ans</th></tr></thead><tbody>`;
   const c0=RESULTS[0];
   for(const r of RESULTS){
     const sur=r.capex-c0.capex;
     h+=`<tr class="${r.e.npv===best?'best':''}">
-      <td>${r.cap?fmt(r.cap,1)+' kWh':'aucune'}</td>
+      <td>${r.cap?fmt(r.nom,1)+' kWh'+(r.lab?' — <span style="color:var(--muted)">'+r.lab+'</span>':''):'aucune'}</td>
       <td class="num">${sur?'+'+fmt(sur)+' €':'—'}</td>
       <td class="num">${fmt(r.capex)} €</td>
       <td class="num">${fmt(r.auto*100,1)} %</td>
@@ -1360,7 +1390,7 @@ function drawCmp(cfg,refCost){
   const b=RESULTS.find(r=>r.e.npv===best);
   $('kpi').innerHTML=`
     <div><span>Production</span><b>${fmt(RESULTS[0].t.prod)}</b>kWh/an</div>
-    <div><span>Sans PV</span><b>${fmt(refCost)}</b>€/an</div>
+    <div><span>Coût énergie sans PV</span><b>${fmt(refCost)}</b>€/an</div>
     <div><span>Meilleure option</span><b>${b.cap?fmt(b.cap,0)+' kWh':'sans batt.'}</b>VAN ${fmt(b.e.npv)} €</div>
     <div><span>Écrêtage onduleur</span><b>${fmt(RESULTS[0].t.clip)}</b>kWh/an</div>`;
 }
@@ -1380,7 +1410,7 @@ function drawMarg(cfg){
   const steps=[];
   steps.push({lab:'Installer le photovoltaïque', from:null, to:RESULTS[0]});
   for(let i=1;i<RESULTS.length;i++)
-    steps.push({lab:`Passer de ${RESULTS[i-1].cap?fmt(RESULTS[i-1].cap,0)+' à ':'0 à '}${fmt(RESULTS[i].cap,0)} kWh`,
+    steps.push({lab:`Passer à ${fmt(RESULTS[i].nom,1)} kWh${RESULTS[i].lab?' — '+RESULTS[i].lab:''}`,
                 from:RESULTS[i-1], to:RESULTS[i]});
   for(const st of steps){
     const dcap=st.to.capex-(st.from?st.from.capex:0);
