@@ -208,12 +208,38 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
     <label><input type="checkbox" id="evOn"> Activer</label>
     <div id="evBox" style="display:none">
       <div class="row">
-        <div><label>kWh par an</label><input id="evKwh" type="number" value="1800" step="100"></div>
+        <div><label>Roulage (kWh/an)</label><input id="evKwh" type="number" value="1800" step="100"></div>
         <div><label>Borne (kW)</label><input id="evKw" type="number" value="7.4" step="0.4"></div>
       </div>
-      <label>Part rechargée en journée sur le surplus (%)</label>
-      <input id="evDay" type="range" min="0" max="100" value="50" oninput="evDayLbl.textContent=this.value+' %'">
-      <p class="hint">Recharge diurne : <b id="evDayLbl">50 %</b> — le reste se fait la nuit (23h–5h).</p>
+      <div class="row">
+        <div><label>Batterie du véhicule (kWh)</label><input id="evCap" type="number" value="60" step="1"></div>
+        <div><label>dont utilisable (kWh)</label><input id="evUtil" type="number" value="50" step="1"></div>
+      </div>
+      <div class="row">
+        <div><label>Jours sans trajet (%)</label><input id="evImmo" type="number" value="33" step="1"></div>
+        <div><label>Durée moyenne d'immobilité (j)</label><input id="evSpell" type="number" value="2.5" step="0.5"></div>
+      </div>
+      <div class="row">
+        <div><label>Recharge réseau sous (%)</label><input id="evSeuil" type="number" value="30" step="5"></div>
+        <div><label>Priorité sur la batterie sous (%)</label><input id="evPrio" type="number" value="50" step="5"></div>
+      </div>
+      <p class="hint" id="evHint"></p>
+      <p class="hint"><b>Comment la voiture se comporte.</b> Elle ne fait que consommer : aucune
+      restitution vers la maison, pas de V2H. Son état de charge se propage de jour en jour, si
+      bien que les périodes d'immobilité comptent autant que le kilométrage — une voiture qui
+      dort trois jours au garage finit pleine et cesse d'absorber le surplus.<br>
+      <b>Immobilité.</b> Les jours sans trajet arrivent en grappes, comme les journées couvertes :
+      la durée moyenne fixe la longueur des séries. L'énergie annuelle de roulage est conservée —
+      moins de jours roulés signifie des trajets plus longs, pas moins de kilomètres.<br>
+      <b>Recharge solaire.</b> Le surplus est accepté dès qu'il y a de la place, c'est de
+      l'énergie gratuite. <b>Recharge réseau.</b> Elle n'intervient que sous le premier seuil, la
+      nuit, et s'arrête au second : elle garantit la mobilité sans gaspiller l'occasion solaire du
+      lendemain.<br>
+      <b>Qui passe devant.</b> En été, la maison se sert d'abord et la voiture prend ce qui reste
+      une fois la batterie domestique pleine. Le reste de l'année, la voiture passe devant tant
+      qu'elle est sous le seuil de priorité.<br>
+      La part rechargée au soleil n'est plus un réglage : elle est <b>calculée</b> et affichée
+      ci-dessus.</p>
     </div>
   </div>
 
@@ -700,64 +726,102 @@ function dayLoad(dt,dayIdx,baseCurve,peakQ,parts,mc){
 }
 
 /* ---------- simulation d'un type de journée ---------- */
-function simDay(dt,P,cfg,cap,soc){
-  const nq=Math.round(cfg.evKw/4*1000)/1000;
+/*  Le véhicule est une charge, jamais une source : aucun V2H.
+    Son état de charge se propage de jour en jour, ce qui rend les périodes
+    d'immobilité déterminantes — une voiture au garage plusieurs jours d'affilée
+    finit pleine et cesse d'absorber le surplus.                                   */
+function evHome(ev,q){ if(!ev.drive) return true; const h=q/4; return h<8||h>=18; }
+function simDay(dt,P,cfg,cap,soc,ev){
   const load=dt._load, prod=dt._prod;
   const res={imp:0,exp:0,auto:0,ch:0,dis:0,clip:0,socS:new Array(Q),chS:new Array(Q).fill(0),
              disS:new Array(Q).fill(0),evS:new Array(Q).fill(0),gridS:new Array(Q).fill(0),
-             prodS:new Array(Q).fill(0),loadS:new Array(Q).fill(0),cov:null};
+             prodS:new Array(Q).fill(0),loadS:new Array(Q).fill(0),evSocS:new Array(Q).fill(0),
+             cov:null,evGrid:0,evSun:0,evDrive:0};
   const parts=dt._parts||null;
   if(parts) res.cov=parts.map(()=>({kwh:0,sol:0}));
   let evCov={kwh:0,sol:0};
   const eta=Math.sqrt(cfg.battEta), pmax=cfg.battKw/4;
-  // besoin VE du jour
-  let evDay=0, evNight=0;
-  if(cfg.evOn){ const d=cfg.evKwh/365; evDay=d*cfg.evDay/100; evNight=d-evDay; }
-  let evRest=evDay;
+  const on=!!(cfg.evOn&&ev), pev=on?cfg.evKw/4:0;
+  const seuil=on?ev.cap*Math.max(0,Math.min(100,cfg.evSeuil))/100:0;
+  const prio =on?ev.cap*Math.max(0,Math.min(100,cfg.evPrio ))/100:0;
   const nightQ=q=>{const h=q/4; return h>=23||h<5;};
-  const dayWin=q=>{const h=q/4; return h>=9&&h<17;};
-  let nightLeft=evNight, nightQs=0;
-  for(let q=0;q<Q;q++) if(nightQ(q)) nightQs++;
   for(let q=0;q<Q;q++){
     let p=Math.min(prod[q],cfg.invKw/4);
     res.clip+=prod[q]-p;
-    let l=load[q], ev=0;
-    if(cfg.evOn && nightQ(q)){ ev=nightLeft/nightQs; l+=ev; }
-    let net=l-p;
-    // recharge VE sur surplus
-    if(cfg.evOn && evRest>0 && dayWin(q) && net<0){
-      const take=Math.min(-net,cfg.evKw/4,evRest);
-      evRest-=take; net+=take; ev+=take; l+=take;
+    let l=load[q]+(cap>0?cfg.battIdle/1000/4:0);
+    let evq=0;
+    // départ / retour : l'énergie de roulage est prélevée au retour, à 18h
+    if(on && ev.drive && q===18*4){ const d=Math.min(ev.soc,ev.trip); ev.soc-=d; res.evDrive+=d; }
+    const dispo = on && evHome(ev,q) && ev.plug && ev.soc<ev.cap-1e-9;
+    // recharge de sécurité au réseau, la nuit, quand la réserve est descendue sous le seuil
+    if(dispo && ev.charge && nightQ(q) && ev.soc<prio){
+      const t=Math.min(pev,prio-ev.soc);
+      if(t>0){ ev.soc+=t; evq+=t; res.evGrid+=t; }
     }
-    // fin de fenêtre : complément réseau si le solaire n'a pas suffi
-    if(cfg.evOn && evRest>0 && q===Math.round(17*4)-1){ net+=evRest; ev+=evRest; l+=evRest; evRest=0; }
-    if(cap>0){
-      l+=cfg.battIdle/1000/4;
-      net+=cfg.battIdle/1000/4;
-      if(net<0){ const c=Math.min(-net,(cap-soc)/eta,pmax); soc+=c*eta; net+=c; res.ch+=c; res.chS[q]=c; }
-      else if(net>0){ const d=Math.min(net,soc*eta,pmax); soc-=d/eta; net-=d; res.dis+=d; res.disS[q]=d; }
+    let net=l+evq-p;
+    if(net<0){
+      let surp=-net;
+      // arbitrage du surplus entre la voiture et la batterie domestique
+      const roomEv=dispo?Math.max(0,Math.min(pev-evq,ev.cap-ev.soc)):0;
+      const roomB =cap>0?Math.max(0,Math.min(pmax,(cap-soc)/eta)):0;
+      // en été la maison se sert d'abord ; le reste de l'année la voiture passe
+      // devant tant qu'elle est sous le seuil de priorité
+      const carFirst = roomEv>0 && dt.k!=='ete' && ev.soc<prio;
+      if(carFirst){
+        const t=Math.min(surp,roomEv); ev.soc+=t; evq+=t; surp-=t; res.evSun+=t;
+        const c=Math.min(surp,roomB); if(c>0){ soc+=c*eta; surp-=c; res.ch+=c; res.chS[q]=c; }
+      }else{
+        const c=Math.min(surp,roomB); if(c>0){ soc+=c*eta; surp-=c; res.ch+=c; res.chS[q]=c; }
+        const t=Math.min(surp,roomEv); if(t>0){ ev.soc+=t; evq+=t; surp-=t; res.evSun+=t; }
+      }
+      net=-surp;
+    }else if(net>0 && cap>0){
+      const d=Math.min(net,soc*eta,pmax); soc-=d/eta; net-=d; res.dis+=d; res.disS[q]=d;
     }
+    if(on){
+      if(ev.soc<=seuil+1e-9) ev.charge=true;
+      if(ev.soc>=ev.cap-1e-9) ev.charge=false;
+    }
+    l+=evq;
     if(net>0) res.imp+=net; else res.exp+=-net;
-    res.evS[q]=ev; res.gridS[q]=net; res.prodS[q]=p; res.loadS[q]=l;
+    res.evS[q]=evq; res.gridS[q]=net; res.prodS[q]=p; res.loadS[q]=l;
     // attribution : quelle part de la conso de ce quart d'heure vient du solaire ?
     const grid=Math.max(0,net), solF=l>1e-9?Math.max(0,Math.min(1,(l-grid)/l)):0;
     if(parts) parts.forEach((pt,i)=>{ const v=pt.c[q]; res.cov[i].kwh+=v; res.cov[i].sol+=v*solF; });
-    evCov.kwh+=ev; evCov.sol+=ev*solF;
-    res.socS[q]=soc;
+    evCov.kwh+=evq; evCov.sol+=evq*solF;
+    res.socS[q]=soc; res.evSocS[q]=on?ev.soc:0;
   }
   res.soc=soc; res.evCov=evCov;
   return res;
 }
 
+/* ---------- véhicule : état initial et séquence d'immobilité ---------- */
+function evInit(cfg){
+  if(!cfg.evOn) return null;
+  const capU=Math.max(1,cfg.evUtil);
+  return {cap:capU, soc:capU*0.6, drive:false, trip:0, plug:true, charge:false};
+}
+function evSeq(cfg,S,seed){
+  // true = journée sans trajet. Même chaîne de Markov que la météo : les
+  // immobilisations arrivent en grappes, pas isolément.
+  const immo=weatherSeq(S,Math.min(95,Math.max(0,cfg.evImmo))/100,Math.max(1,cfg.evSpell),seed);
+  const nD=immo.filter(x=>!x).length;
+  // l'énergie annuelle de roulage est conservée : moins de jours roulés, trajets plus longs
+  return {immo, trip: nD ? cfg.evKwh/365*S/nD : 0, nD};
+}
+
 /* ---------- année complète ---------- */
 function simYear(cfg,cap){
-  const tot={imp:0,exp:0,prod:0,load:0,cons:0,ch:0,dis:0,clip:0,byPart:{}};
+  const tot={imp:0,exp:0,prod:0,load:0,cons:0,ch:0,dis:0,clip:0,byPart:{},
+             evGrid:0,evSun:0,evDrive:0,evImmoJ:0};
   for(const dt of DT){
     const cyc=Math.min(12,APPL.filter(a=>a.s.includes(dt.k)).reduce((m,a)=>lcm(m,Math.max(1,a.freq)),1));
     const peakQ=argmax(dt._prodBase);
     const S=(typeof MC_S!=='undefined'&&MC_S)?MC_S:Math.min(120,Math.max(60,cyc*8));
     const wx=weatherSeq(S,dt.cloud/100,cfg.spell,(MC?MC.seed:7919)+dt.k.length*131);
     const cur=seqCurves(dt,wx);
+    const evSt=evInit(cfg);
+    const es=evSt?evSeq(cfg,S,(MC?MC.seed:4517)+dt.k.length*97):null;
     let soc=0, days=[];
     for(let pass=0;pass<2;pass++){
       days=[];
@@ -772,14 +836,21 @@ function simYear(cfg,cap){
           mc={rng:r, prof:MC.prof, baseMul: away?MC.awayMul:1,
               freqMul: away?0.05:1, climMul: heat?MC.heatMul:(away?0:1)};
         }
+        if(evSt){
+          evSt.drive=!es.immo[d]; evSt.trip=es.trip;
+          // discipline : on oublie parfois de rebrancher, sauf si la réserve est basse
+          evSt.plug = MC ? (MC.rng()>=MC.pplug || evSt.soc<2*es.trip) : true;
+        }
         dt._load=dayLoad(dt,d%cyc,dt._base,peakQ,dt._parts,mc);
         dt._prod=cloudy?cur.lo:cur.hi;
-        const r=simDay(dt,null,cfg,cap,soc); soc=r.soc; days.push(r);
+        const r=simDay(dt,null,cfg,cap,soc,evSt); soc=r.soc; days.push(r);
       }
     }
     const w=dt.days/S;
+    if(es) tot.evImmoJ+=es.immo.filter(Boolean).length*w;
     for(const r of days){
       tot.imp+=r.imp*w; tot.exp+=r.exp*w; tot.ch+=r.ch*w; tot.dis+=r.dis*w; tot.clip+=r.clip*w;
+      tot.evGrid+=r.evGrid*w; tot.evSun+=r.evSun*w; tot.evDrive+=r.evDrive*w;
       tot.cons+=r.loadS.reduce((a,b)=>a+b,0)*w;
       tot.prod+=(r.prodS.reduce((a,b)=>a+b,0)+r.clip)*w;
       if(r.cov) r.cov.forEach((c,i)=>{
@@ -845,11 +916,11 @@ function economics(gain,capex,cfg,cap,gainAt,prixBatt){
 /* ============ Étude de robustesse : Monte-Carlo sur les habitudes ============ */
 const PROFILS_MC=[
  {k:'rigoureux', n:'Rigoureux',  d:'Vous lancez chaque cycle au bon moment, presque sans exception',
-  pjit:0.5, pmiss:0.02, pw:0.05, ph:0.05},
+  pjit:0.5, pmiss:0.02, pw:0.05, ph:0.05, pplug:0.02},
  {k:'normal',    n:'Normal',     d:'Vous y pensez souvent, vous oubliez parfois',
-  pjit:1.5, pmiss:0.12, pw:0.12, ph:0.12},
+  pjit:1.5, pmiss:0.12, pw:0.12, ph:0.12, pplug:0.12},
  {k:'insouciant',n:'Insouciant', d:'Vous vivez votre vie sans regarder le soleil',
-  pjit:4.0, pmiss:0.35, pw:0.20, ph:0.20}
+  pjit:4.0, pmiss:0.35, pw:0.20, ph:0.20, pplug:0.30}
 ];
 function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
   t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
@@ -860,13 +931,14 @@ const moy=a=>a.reduce((x,y)=>x+y,0)/a.length;
 let MCstate={running:false,draws:0,done:0,res:{}};
 
 function mcInit(){
-  PROFILS_MC.forEach(p=>MCstate.res[p.k]={bill0:[],bill1:[],gain:[],cons:[]});
+  PROFILS_MC.forEach(p=>MCstate.res[p.k]={bill0:[],bill1:[],gain:[],cons:[],
+    evSol0:[],evSol1:[],evGrid0:[],immo:[]});
   MCstate.done=0;
 }
 
 function mcOneDraw(cfg,capU,prof,seed){
   const rng=mulberry(seed);
-  MC={rng, prof, seed:(seed*2654435761)>>>0,
+  MC={rng, prof, pplug:prof.pplug||0, seed:(seed*2654435761)>>>0,
       pAway:cfg._pAway, awayMul:0.25, pHeat:cfg._pHeat, heatMul:cfg._heatMul};
   MC_S=cfg._S;
   const t0=simYear(cfg,0);
@@ -876,7 +948,9 @@ function mcOneDraw(cfg,capU,prof,seed){
   const ref=t0.cons*cfg.pElec;
   const b0=t0.imp*cfg.pElec-t0.exp*cfg.pInj;
   const b1=t1.imp*cfg.pElec-t1.exp*cfg.pInj;
-  return {ref,b0,b1,cons:t0.cons};
+  const part=t=>(t.evSun+t.evGrid)>0?100*t.evSun/(t.evSun+t.evGrid):0;
+  return {ref,b0,b1,cons:t0.cons,evSol0:part(t0),evSol1:part(t1),
+          evGrid0:t0.evGrid,immo:t0.evImmoJ};
 }
 
 function mcStart(){
@@ -902,6 +976,8 @@ function mcStart(){
         const R=MCstate.res[p.k];
         R.bill0.push(r.b0); R.bill1.push(r.b1);
         R.gain.push(r.b0-r.b1); R.cons.push(r.cons);
+        R.evSol0.push(r.evSol0); R.evSol1.push(r.evSol1);
+        R.evGrid0.push(r.evGrid0); R.immo.push(r.immo);
       });
       MCstate.done++;
     }
@@ -956,6 +1032,24 @@ function mcRender(cfg,nom,capU){
       <td class="num">${fmt(m1)} €</td></tr>`;
   }
   h+='</tbody></table>';
+  if(cfg.evOn){
+    h+=`<h3 style="margin:18px 0 6px;font-size:15px;font-weight:500">Le véhicule</h3>
+      <table><thead><tr><th>Profil d'habitudes</th><th>Roulage au soleil, sans batterie</th>
+      <th>Fourchette P10–P90</th><th>Roulage au soleil, avec batterie</th>
+      <th>Jours sans trajet</th></tr></thead><tbody>`;
+    for(const p of PROFILS_MC){
+      const R=MCstate.res[p.k];
+      h+=`<tr><td><b>${p.n}</b></td>
+        <td class="num">${fmt(moy(R.evSol0),0)} %</td>
+        <td class="num">${fmt(q(R.evSol0,.10),0)} – ${fmt(q(R.evSol0,.90),0)} %</td>
+        <td class="num">${fmt(moy(R.evSol1),0)} %</td>
+        <td class="num">${fmt(moy(R.immo),0)} j/an</td></tr>`;
+    }
+    h+=`</tbody></table><p class="hint">La voiture ne fait que consommer : jamais de restitution
+      vers la maison. Chaque tirage retire une nouvelle séquence de jours sans trajet — c'est elle
+      qui décide si la voiture est au garage quand le soleil donne. Les profils moins rigoureux
+      oublient plus souvent de rebrancher, ce qui reporte la recharge sur le réseau.</p>`;
+  }
   $('mcTab').innerHTML=h;
 
   // boîtes à moustaches : sans batterie et avec batterie, sur la même échelle
@@ -1041,8 +1135,17 @@ function mcRender(cfg,nom,capU){
     <b>${fmt(gI)} €/an</b> si vous ne l'êtes pas — la batterie
     ${gI>gR?'<b>rattrape</b> une partie de vos écarts, elle est donc plus utile à qui manque de régularité'
            :'perd de son intérêt quand la consommation est déjà bien placée'}.
-    Chaque tirage simule une année entière : météo, jours de canicule, absences, heures de départ
-    et fréquences des cycles sont retirés au hasard à chaque fois.</p>`;
+    Chaque tirage simule une année entière : météo, jours de canicule, absences, heures de départ,
+    fréquences des cycles${cfg.evOn?', séquence des jours sans trajet et oublis de branchement':''}
+    sont retirés au hasard à chaque fois.</p>`
+    +(cfg.evOn?`<p>${(()=>{
+      const sR=moy(MCstate.res.rigoureux.evSol0), sI=moy(MCstate.res.insouciant.evSol0);
+      const lo=q(MCstate.res.normal.evSol0,.10), hi=q(MCstate.res.normal.evSol0,.90);
+      return `<b>Le véhicule roule au soleil à ${fmt(sR,0)} %</b> si vous rebranchez sans faute,
+        ${fmt(sI,0)} % si vous y pensez rarement. D'une année à l'autre, cette part oscille entre
+        ${fmt(lo,0)} et ${fmt(hi,0)} % pour un profil normal : c'est le rythme d'immobilisation de
+        la voiture, pas votre discipline, qui domine. Une voiture souvent au garage capte le
+        surplus d'été ; une voiture partie toute la journée le laisse au réseau.`;})()}</p>`:'');
 }
 
 /* ---------- ouverture de l'onglet d'étude ---------- */
@@ -1066,7 +1169,9 @@ const MC_LAB={
  ixEte:['Indice de consommation — été',''], ixInter:['Indice — intermédiaire',''],
  ixHiver:['Indice — hiver',''],
  evKwh:['Véhicule — consommation','kWh/an'], evKw:['Véhicule — borne','kW'],
- evDay:['Véhicule — part rechargée en journée','%'],
+ evCap:['Véhicule — batterie','kWh'], evUtil:['Véhicule — capacité utilisable','kWh'],
+ evImmo:['Véhicule — jours sans trajet','%'], evSpell:['Véhicule — durée moyenne d\'immobilité','j'],
+ evSeuil:['Véhicule — recharge réseau sous','%'], evPrio:['Véhicule — priorité sur la batterie sous','%'],
  battEta:['Rendement aller-retour',''],
  battDegr:['Perte de capacité','%/an'], battKw:['Puissance de charge max','kW'],
  battIdle:['Veille du système de stockage','W'],
@@ -1082,7 +1187,7 @@ const MC_LAB={
 const MC_GRP=[
  ['Production',['nPan','wPan','refSud','tilt','azA','azB','shA','pvA','pvB','yieldKwc','invKw']],
  ['Consommation',['baseKwh','baseDay','ixEte','ixInter','ixHiver']],
- ['Véhicule électrique',['evKwh','evKw','evDay']],
+ ['Véhicule électrique',['evKwh','evKw','evCap','evUtil','evImmo','evSpell','evSeuil','evPrio']],
  ['Batterie',['battEta','battDegr','battKw','battIdle']],
  ['Prix et incitants',['pElec','pInj','infl','disc','cvRate','cvPrice','cvYears']],
  ['Investissement',['capexPv','degr','invYear','invCost','batYear','batPct','maint','horizon']],
@@ -1145,7 +1250,7 @@ function openMC(){
     .replace(/<\/script/gi,'<\\/script');
   const ids=Object.keys(snap.inp).map(id=>`<input id="${id}" value="${String(snap.inp[id]).replace(/"/g,'&quot;')}">`).join('')
     +Object.keys(snap.chk).map(id=>`<input type="checkbox" id="${id}" ${snap.chk[id]?'checked':''}>`).join('')
-    +['prodHint','dtBody','applList','consHint','battHint','evBox','evDayLbl','baseDayLbl','kpi','cmp',
+    +['prodHint','dtBody','applList','consHint','battHint','evBox','evHint','baseDayLbl','kpi','cmp',
       'marg','dayTabs','chart','dayStats','dayKpi','cf','cfLeg','battBody','battAlerte','recalc','out']
       .map(id=>`<div id="${id}"></div>`).join('');
   const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
@@ -1207,7 +1312,7 @@ document.getElementById('mcGo').onclick=mcStart;
 
 /* ---------- scénarios : stockage local, presets, import/export ---------- */
 const LSKEY='simu-pv-v1';
-const PRESET_JIM={BATT:[{lab:'Energreen — 1 module EP6',nom:5.76,util:5.18,prix:1966},{lab:'Energreen — 2 modules EP6',nom:11.52,util:10.37,prix:3898},{lab:'Reno.Energy — Dyness PowerBrick',nom:16.07,util:15.27,prix:3384}], inp:{"nPan": "14", "wPan": "450", "yieldKwc": "870", "invKw": "5", "refSud": "1050", "tilt": "35", "azA": "-90", "azB": "90", "shA": "50", "pvA": "850.4", "pvB": "834.06", "spell": "2.5", "baseKwh": "1000", "baseDay": "28", "ixEte": "0.92", "ixInter": "1.00", "ixHiver": "1.14", "evKwh": "1800", "evKw": "7.4", "evDay": "50", "battEta": "0.90", "battDegr": "1.5", "battKw": "5", "battIdle": "25", "pElec": "0.3818", "pInj": "0.040", "infl": "3", "disc": "3", "cvRate": "1.739", "cvPrice": "72", "cvYears": "10", "capexPv": "5102", "degr": "0.4", "invYear": "14", "invCost": "1500", "batYear": "15", "batPct": "50", "maint": "35", "horizon": "25", "debounce": "4"}, chk:{"evOn": false}, DT:[
+const PRESET_JIM={BATT:[{lab:'Energreen — 1 module EP6',nom:5.76,util:5.18,prix:1966},{lab:'Energreen — 2 modules EP6',nom:11.52,util:10.37,prix:3898},{lab:'Reno.Energy — Dyness PowerBrick',nom:16.07,util:15.27,prix:3384}], inp:{"nPan": "14", "wPan": "450", "yieldKwc": "870", "invKw": "5", "refSud": "1050", "tilt": "35", "azA": "-90", "azB": "90", "shA": "50", "pvA": "850.4", "pvB": "834.06", "spell": "2.5", "baseKwh": "1000", "baseDay": "28", "ixEte": "0.92", "ixInter": "1.00", "ixHiver": "1.14", "evKwh": "1800", "evKw": "7.4", "evCap": "60", "evUtil": "50", "evImmo": "33", "evSpell": "2.5", "evSeuil": "30", "evPrio": "50", "battEta": "0.90", "battDegr": "1.5", "battKw": "5", "battIdle": "25", "pElec": "0.3818", "pInj": "0.040", "infl": "3", "disc": "3", "cvRate": "1.739", "cvPrice": "72", "cvYears": "10", "capexPv": "5102", "degr": "0.4", "invYear": "14", "invCost": "1500", "batYear": "15", "batPct": "50", "maint": "35", "horizon": "25", "debounce": "4"}, chk:{"evOn": false}, DT:[
  {k:'ete',   n:'Été',           days:123, share:58, doy:180, cloud:40, clow:35},
  {k:'inter', n:'Intermédiaire', days:122, share:34, doy:81, cloud:50, clow:25},
  {k:'hiver', n:'Hiver',         days:120, share:10, doy:340, cloud:70, clow:40}
@@ -1226,7 +1331,7 @@ const DEFAUT_GENERIQUE={
  inp:{nPan:'14',wPan:'450',refSud:'1000',tilt:'35',azA:'-90',azB:'90',shA:'50',
       pvA:'',pvB:'',yieldKwc:'830',invKw:'5',spell:'2.5',
       baseKwh:'1400',baseDay:'28',ixEte:'0.92',ixInter:'1.00',ixHiver:'1.14',
-      evKwh:'2500',evKw:'7.4',evDay:'50',
+      evKwh:'2500',evKw:'7.4',evCap:'60',evUtil:'50',evImmo:'33',evSpell:'2.5',evSeuil:'30',evPrio:'50',
       battEta:'0.90',
       battDegr:'1.5',battKw:'5',battIdle:'25',
       pElec:'0.3800',pInj:'0.040',infl:'3',disc:'3',cvRate:'1.739',cvPrice:'72',cvYears:'10',
@@ -1257,7 +1362,6 @@ function appliquer(st){
   if(st.BATT) BATT=JSON.parse(JSON.stringify(st.BATT));
   if($('evBox')) $('evBox').style.display=$('evOn').checked?'block':'none';
   if($('baseDayLbl')) $('baseDayLbl').textContent=$('baseDay').value+' %';
-  if($('evDayLbl'))   $('evDayLbl').textContent=$('evDay').value+' %';
   renderDT(); renderAppl(); renderBatt(); runNow();
 }
 function sauverCourant(){ const d=lsGet(); d.courant=snapshotParams(); lsSet(d); }
@@ -1318,7 +1422,7 @@ function readCfg(){
   const c={};
   ['baseKwh','baseDay','ixEte','ixInter','ixHiver','invKw','battEta','battKw','battIdle','pElec','pInj','infl','disc',
    'cvRate','cvPrice','cvYears','capexPv','degr','invYear','invCost','batYear','batPct',
-   'maint','horizon','evKwh','evKw','evDay','nPan','wPan','yieldKwc','spell','tilt','azA','azB','shA','battDegr','refSud'].forEach(k=>c[k]=+$(k).value);
+   'maint','horizon','evKwh','evKw','evCap','evUtil','evImmo','evSpell','evSeuil','evPrio','nPan','wPan','yieldKwc','spell','tilt','azA','azB','shA','battDegr','refSud'].forEach(k=>c[k]=+$(k).value);
   c.evOn=$('evOn').checked;
   c.pvA=+($('pvA').value||0); c.pvB=+($('pvB').value||0);
   c.mesure = c.pvA>0 && c.pvB>0;
@@ -1393,6 +1497,25 @@ function run(){
     return pts[pts.length-1][1];
   };
   RESULTS=raw.map(r=>({...r,e:economics(r.gain,r.capex,cfg,r.cap,gainAt,r.prix)}));
+  if($('evHint')){
+    if(!cfg.evOn) $('evHint').innerHTML='';
+    else{
+      const r0=raw[0].t, rB=raw[raw.length-1].t;
+      const part=t=>t.evSun+t.evGrid>0?100*t.evSun/(t.evSun+t.evGrid):0;
+      const inc = cfg.evUtil>cfg.evCap
+        ? `<span style="color:var(--bad)">La capacité utilisable (${fmt(cfg.evUtil,0)} kWh) dépasse
+           la capacité de la batterie (${fmt(cfg.evCap,0)} kWh) — vérifiez la fiche technique.</span><br>`
+        : `<span style="color:var(--muted)">${fmt(cfg.evUtil,0)} kWh exploitables sur
+           ${fmt(cfg.evCap,0)} kWh, soit ${fmt(100*cfg.evUtil/Math.max(1,cfg.evCap),0)} % —
+           le reste est la réserve que l'on ne descend pas.</span><br>`;
+      $('evHint').innerHTML=inc+`Résultat de la simulation, sans batterie :
+        <b>${fmt(part(r0),0)} %</b> du roulage vient du soleil
+        (${fmt(r0.evSun)} kWh solaires, ${fmt(r0.evGrid)} kWh au réseau)`
+        +(raw.length>1?` &nbsp;·&nbsp; avec ${fmt(raw[raw.length-1].cap,1)} kWh de batterie :
+          <b>${fmt(part(rB),0)} %</b>`:'')
+        +` &nbsp;·&nbsp; ${fmt(r0.evImmoJ,0)} jours sans trajet par an`;
+    }
+  }
   $('battHint').innerHTML=opts.filter(o=>o.nom>0).map(o=>
     `${o.lab||fmt(o.nom,1)+' kWh'} : <b>${fmt(o.util,2)} kWh utiles</b> pour ${fmt(o.prix)} €
      (${fmt(o.prix/o.util)} €/kWh utile)`).join(' &nbsp;·&nbsp; ');
@@ -1514,6 +1637,10 @@ function drawTabs(){
        <option value="moy">journée moyenne</option>
        <option value="clair">journée claire</option>
        <option value="couv">journée couverte</option></select>`
+    +($('evOn')&&$('evOn').checked?` <select id="chEv" onchange="drawChart()" style="max-width:170px">
+       <option value="auto">voiture — selon la séquence</option>
+       <option value="garage">voiture au garage</option>
+       <option value="roule">voiture en trajet</option></select>`:'')
     +` <label style="display:inline;margin-left:8px"><input type="checkbox" id="chDec"
         onchange="drawChart()"> décomposer la consommation</label>`;
 }
@@ -1529,16 +1656,22 @@ function drawChart(){
   // on rejoue la séquence complète pour arriver sur un état de charge réaliste
   let soc=0;
   dt._parts=dt._parts||[];
+  const evSt=evInit(cfg);
+  const es=evSt?evSeq(cfg,S,4517+dt.k.length*97):null;
   for(let pass=0;pass<2;pass++)
     for(let d=0;d<S;d++){
+      if(evSt){ evSt.drive=!es.immo[d]; evSt.trip=es.trip; evSt.plug=true; }
       dt._load=dayLoad(dt,d%cyc,dt._base,peakQ,dt._parts);
       dt._prod=seq[d]?cur.lo:cur.hi;
-      soc=simDay(dt,null,cfg,r.cap,soc).soc;
+      soc=simDay(dt,null,cfg,r.cap,soc,evSt).soc;
     }
   // puis on simule la journée demandée
   dt._prod = wx==='clair'?cur.hi : wx==='couv'?cur.lo : dt._prodBase;
   dt._load = dayLoad(dt,0,dt._base,peakQ,dt._parts);
-  const s=simDay(dt,null,cfg,r.cap,soc);
+  const evJ=$('chEv')?$('chEv').value:'auto';
+  if(evSt){ evSt.drive = evJ==='roule' ? true : evJ==='garage' ? false : !es.immo[0];
+            evSt.trip=es.trip; evSt.plug=true; }
+  const s=simDay(dt,null,cfg,r.cap,soc,evSt);
 
   const W=680,H=300,pad={l:38,r:34,t:12,b:100};
   const zero=H-pad.b, bandT=zero+22, bandMid=bandT+30, bandH=26;
@@ -1626,24 +1759,29 @@ function drawChart(){
     <p class="hint">Lecture annuelle, pas journalière. « Couvert par le solaire » inclut la batterie.
     Un poste faiblement couvert est un poste à décaler vers les heures de production — ou à confier
     au stockage si c'est impossible.</p>`;
+  const evAct=s.evS.some(v=>v>1e-9);
   let qt=`<details style="margin-top:12px"><summary>Détail quart d'heure par quart d'heure
     (${fmt(dt._prodTotal,1)} kWh produits, ${fmt(load.reduce((a,b)=>a+b,0),1)} kWh consommés)
     &nbsp;<button class="sm" onclick="copyQ()">copier</button></summary>
     <table id="qtab" style="margin-top:8px"><thead><tr><th>Heure</th><th>Production</th>
-    <th>Consommation</th><th>Charge batt.</th><th>Décharge batt.</th><th>Niveau batt.</th>
+    <th>Consommation</th>${evAct?'<th>dont véhicule</th>':''}<th>Charge batt.</th>
+    <th>Décharge batt.</th><th>Niveau batt.</th>
     <th>Réseau</th></tr></thead><tbody>`;
   for(let q=0;q<Q;q++){
     const hh=String(Math.floor(q/4)).padStart(2,'0')+':'+String((q%4)*15).padStart(2,'0');
     const gr=s.gridS[q]*4;
     qt+=`<tr><td>${hh}</td><td class="num">${fmt(s.prodS[q]*4,2)}</td>
       <td class="num">${fmt(s.loadS[q]*4,2)}</td>
+      ${evAct?`<td class="num">${s.evS[q]>1e-9?fmt(s.evS[q]*4,2):''}</td>`:''}
       <td class="num">${s.chS[q]>0?fmt(s.chS[q]*4,2):''}</td>
       <td class="num">${s.disS[q]>0?fmt(s.disS[q]*4,2):''}</td>
       <td class="num">${r.cap?fmt(s.socS[q],2):''}</td>
       <td class="num ${gr>0.001?'neg':gr<-0.001?'pos':''}">${Math.abs(gr)<0.001?'':fmt(gr,2)}</td></tr>`;
   }
   qt+=`</tbody></table><p class="hint">Puissances en kW, niveau de batterie en kWh.
-    Réseau : positif = prélevé, négatif = injecté.</p></details>`;
+    Réseau : positif = prélevé, négatif = injecté.
+    ${evAct?"La colonne « dont véhicule » est déjà comprise dans la consommation ; elle ne s'y ajoute pas."
+           :''}</p></details>`;
   $('dayStats').innerHTML=tb+qt+`<table><tbody>
    <tr><td>Production du jour</td><td class="num">${fmt(dt._prodTotal,1)} kWh</td>
        <td>Consommation</td><td class="num">${fmt(load.reduce((a,b)=>a+b,0),1)} kWh</td></tr>
