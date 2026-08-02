@@ -1450,34 +1450,60 @@ function copyQ(){
   });
 }
 function drawMarg(cfg){
-  let h=`<table><thead><tr><th>Décision</th><th>Surcoût</th><th>Gain an. 1</th>
+  // rendement d'une décision : passer de `from` à `to`
+  const eval1=(from,to)=>{
+    const dcap=to.capex-(from?from.capex:0);
+    const nets=to.e.rows.map((r,y)=>r.net-(from?from.e.rows[y].net:0));
+    let cum=-dcap,pb=null,npv=-dcap;
+    nets.forEach((n,j)=>{const p=cum;cum+=n;npv+=n/Math.pow(1+cfg.disc/100,j+1);
+      if(pb===null&&cum>=0)pb=j+(-p)/n;});
+    let lo=-0.95,hi=2;
+    for(let k=0;k<200;k++){const m=(lo+hi)/2;let v=-dcap;
+      nets.forEach((n,j)=>v+=n/Math.pow(1+m,j+1)); if(v>0)lo=m;else hi=m;}
+    return {dcap, gain1:nets[0], pb, npv, irr:(lo+hi)/2};
+  };
+  const ligne=(lab,from,to)=>{
+    const r=eval1(from,to);
+    // un surcoût nul ou négatif rend le taux de rendement dénué de sens :
+    // cela n'arrive qu'en comparant des devis de fournisseurs différents.
+    if(r.dcap<=0) return `<tr><td>${lab}</td><td class="num">${fmt(r.dcap)} €</td>
+      <td class="num">${fmt(r.gain1)} €</td><td class="num">—</td><td class="num">—</td>
+      <td class="num pos">${fmt(r.npv)} €</td>
+      <td style="text-align:right;color:var(--accent)">moins cher <i>et</i> mieux</td></tr>`;
+    const bad=r.npv<0, mid=!bad&&r.irr<0.08;
+    const verdict=bad?'à éviter':mid?'marginal':'à faire';
+    return `<tr><td>${lab}</td><td class="num">${fmt(r.dcap)} €</td>
+      <td class="num">${fmt(r.gain1)} €</td>
+      <td class="num">${r.pb?fmt(r.pb,1)+' a':'jamais'}</td>
+      <td class="num ${r.irr>0.08?'pos':r.irr>0?'':'neg'}">${r.irr<-0.5?'—':fmt(r.irr*100,1)+' %'}</td>
+      <td class="num ${r.npv>0?'pos':'neg'}">${fmt(r.npv)} €</td>
+      <td style="text-align:right;color:${bad?'var(--bad)':mid?'var(--warn)':'var(--accent)'}">${verdict}</td></tr>`;
+  };
+  const tete=`<thead><tr><th>Décision</th><th>Surcoût</th><th>Gain an. 1</th>
     <th>Retour</th><th>TRI sur ${fmt(cfg.horizon,0)} ans</th>
     <th>VAN à ${fmt(cfg.disc,0)} % sur ${fmt(cfg.horizon,0)} ans</th><th>Verdict</th></tr></thead><tbody>`;
-  const steps=[];
-  steps.push({lab:'Installer le photovoltaïque', from:null, to:RESULTS[0]});
+
+  let h=`<table>${tete}`+ligne('Installer le photovoltaïque',null,RESULTS[0]);
   for(let i=1;i<RESULTS.length;i++)
-    steps.push({lab:`Passer à ${fmt(RESULTS[i].nom,1)} kWh${RESULTS[i].lab?' — '+RESULTS[i].lab:''}`,
-                from:RESULTS[i-1], to:RESULTS[i]});
-  for(const st of steps){
-    const dcap=st.to.capex-(st.from?st.from.capex:0);
-    const nets=st.to.e.rows.map((r,y)=>r.net-(st.from?st.from.e.rows[y].net:0));
-    let cum=-dcap,pb=null,npv=-dcap;
-    nets.forEach((n,j)=>{const pv0=cum;cum+=n;npv+=n/Math.pow(1+cfg.disc/100,j+1);
-      if(pb===null&&cum>=0)pb=j+(-pv0)/n;});
-    let lo=-0.95,hi=2;
-    for(let i=0;i<200;i++){const m=(lo+hi)/2;let v=-dcap;
-      nets.forEach((n,j)=>v+=n/Math.pow(1+m,j+1)); if(v>0)lo=m;else hi=m;}
-    const irr=(lo+hi)/2;
-    const bad=npv<0, mid=!bad&&irr<0.08;
-    const verdict=bad?'à éviter':mid?'marginal':'à faire';
-    h+=`<tr><td>${st.lab}</td><td class="num">${fmt(dcap)} €</td>
-      <td class="num">${fmt(nets[0])} €</td>
-      <td class="num">${pb?fmt(pb,1)+' a':'jamais'}</td>
-      <td class="num ${irr>0.08?'pos':irr>0?'':'neg'}">${irr<-0.5?'—':fmt(irr*100,1)+' %'}</td>
-      <td class="num ${npv>0?'pos':'neg'}">${fmt(npv)} €</td>
-      <td style="text-align:right;color:${bad?'var(--bad)':mid?'var(--warn)':'var(--accent)'}">${verdict}</td></tr>`;
+    h+=ligne(`Passer à ${fmt(RESULTS[i].nom,1)} kWh${RESULTS[i].lab?' — '+RESULTS[i].lab:''}`,
+             RESULTS[i-1],RESULTS[i]);
+  h+='</tbody></table>';
+
+  // Les marches ci-dessus s'enchaînent, ce qui n'a de sens qu'entre options du même
+  // fournisseur. Face aux panneaux seuls, chaque batterie se juge sur ses propres mérites.
+  if(RESULTS.length>2){
+    h+=`<p class="hint" style="margin:12px 0 4px">Les lignes ci-dessus s'enchaînent : chacune
+      part de l'option précédente. C'est le bon raisonnement pour agrandir une batterie du même
+      fournisseur, mais pas pour arbitrer entre deux devis concurrents — une option plus grande
+      peut y coûter moins cher, et l'enchaînement perd alors son sens. Ci-dessous, chaque batterie
+      est comparée directement aux panneaux seuls : c'est la comparaison à utiliser pour choisir
+      un fournisseur.</p><table>${tete}`;
+    for(let i=1;i<RESULTS.length;i++)
+      h+=ligne(`${fmt(RESULTS[i].nom,1)} kWh${RESULTS[i].lab?' — '+RESULTS[i].lab:''} plutôt que rien`,
+               RESULTS[0],RESULTS[i]);
+    h+='</tbody></table>';
   }
-  $('marg').innerHTML=h+'</tbody></table>';
+  $('marg').innerHTML=h;
 }
 function drawTabs(){
   $('dayTabs').innerHTML=DT.map((d,i)=>
