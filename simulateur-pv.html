@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Simulateur photovoltaïque — Woluwe-Saint-Lambert</title>
+<style>
+:root{
+  --bg:#faf9f7; --card:#fff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#e3e0da;
+  --accent:#3d6b4f; --accent-bg:#eef3ef; --warn:#8a5a2b; --bad:#9c3a2e;
+  --prod:#c9a227; --cons:#4a6fa5; --batt:#3d6b4f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{padding:18px 24px;border-bottom:1px solid var(--line);background:var(--card)}
+h1{margin:0;font-size:19px;font-weight:600}
+header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.wrap{display:grid;grid-template-columns:410px 1fr;gap:20px;padding:20px;align-items:start}
+@media(max-width:1000px){.wrap{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:14px;font-weight:600;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--muted)}
+label{display:block;font-size:13px;margin:8px 0 3px;color:var(--muted)}
+input,select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:5px;
+  font:inherit;font-size:14px;background:#fff;color:var(--ink)}
+input[type=checkbox]{width:auto;margin-right:6px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line)}
+td input[type=number]{padding:4px 3px;font-size:12px;text-align:right;
+  -moz-appearance:textfield;appearance:textfield}
+td input[type=number]::-webkit-outer-spin-button,
+td input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+#dtBody td:first-child{font-size:12px;white-space:nowrap}
+#params table thead th{font-size:11px;padding:4px 3px;line-height:1.25}
+th:first-child,td:first-child{text-align:left}
+thead th{font-weight:600;color:var(--muted);font-size:12px;border-bottom:2px solid var(--line)}
+tbody tr:hover{background:var(--accent-bg)}
+.num{font-variant-numeric:tabular-nums}
+.pos{color:var(--accent)} .neg{color:var(--bad)}
+.best{background:var(--accent-bg);font-weight:600}
+button{padding:6px 12px;border:1px solid var(--line);background:#fff;border-radius:5px;
+  font:inherit;font-size:13px;cursor:pointer}
+button:hover{background:var(--accent-bg);border-color:var(--accent)}
+button.sm{padding:2px 7px;font-size:12px}
+.appl{border:1px solid var(--line);border-radius:6px;padding:8px;margin-bottom:8px;
+  background:#fdfdfc}
+.appl .hd{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.appl .hd input[type=text]{font-weight:600;border:none;padding:2px 0;background:transparent}
+.hint{font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45}
+.kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.kpi div{background:var(--accent-bg);border-radius:6px;padding:9px 11px}
+.kpi b{display:block;font-size:19px;font-weight:600}
+.kpi span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+svg{width:100%;height:auto;display:block}
+.lg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
+.lg i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:4px;
+  vertical-align:-1px}
+details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
+.fbtn{display:inline-block;padding:6px 12px;border:1px solid var(--line);background:#fff;
+  border-radius:5px;font-size:13px;cursor:pointer}
+.fbtn:hover{background:var(--accent-bg);border-color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Simulateur photovoltaïque</h1>
+  <p>Simulation quart d'heure par quart d'heure — 3 types de journée, stockage paramétrable, rentabilité sur 25 ans</p>
+</header>
+
+<div style="padding:14px 20px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+  <select id="scen" onchange="chargerScen()" style="max-width:330px"></select>
+  <button onclick="enregistrerScen()">enregistrer sous…</button>
+  <button onclick="supprimerScen()">supprimer</button>
+  <button onclick="reinit()">réinitialiser</button>
+  <button onclick="exporterScen()">exporter</button>
+  <label class="fbtn" style="margin:0">importer
+    <input type="file" accept="application/json" onchange="importerScen(event)" style="display:none"></label>
+  <span class="hint" id="scenNote" style="margin:0">Vos réglages sont mémorisés dans ce navigateur.</span>
+</div>
+<div class="wrap">
+<div id="params">
+
+  <div class="card">
+    <h2>Production</h2>
+    <div class="row">
+      <div><label>Nombre de panneaux</label><input id="nPan" type="number" value="14" step="1"></div>
+      <div><label>Wc par panneau</label><input id="wPan" type="number" value="450" step="5"></div>
+    </div>
+    <div class="row">
+      <div><label>Rendement kWh/kWc/an</label><input id="yieldKwc" type="number" value="870" step="10"></div>
+      <div><label>Onduleur AC (kW)</label><input id="invKw" type="number" value="5" step="0.5"></div>
+    </div>
+    <div class="row">
+      <div><label>Référence plein sud à Bruxelles (kWh/kWc)</label>
+        <input id="refSud" type="number" value="1050" step="10"></div>
+      <div><label>Inclinaison de la toiture (°)</label>
+        <input id="tilt" type="number" value="35" step="5"></div>
+    </div>
+    <div class="row3">
+      <div><label>Pan A — azimut</label><input id="azA" type="number" value="-90" step="5"></div>
+      <div><label>Pan B — azimut</label><input id="azB" type="number" value="90" step="5"></div>
+      <div><label>Part pan A (%)</label><input id="shA" type="number" value="50" step="5"></div>
+    </div>
+    <label>Rendement mesuré par pan (kWh/kWc) — <b>facultatif</b>, prioritaire s'il est rempli</label>
+    <div class="row3">
+      <div><input id="pvA" type="number" value="850.4" step="0.1" placeholder="pan A"></div>
+      <div><input id="pvB" type="number" value="834.06" step="0.1" placeholder="pan B"></div>
+      <div><button onclick="viderPV()" style="width:100%">vider</button></div>
+    </div>
+    <p class="hint">Lancez une simulation <a href="https://re.jrc.ec.europa.eu/pvg_tools/fr/"
+    target="_blank">PVGIS</a> pour chaque pan, à son azimut réel, et reportez les deux résultats
+    ici. Le simulateur les combine selon la part de chaque pan et n'utilise plus aucune estimation
+    de rendement. <b>Videz ces champs si vous simulez une autre toiture que celle d'origine.</b></p>
+    <p class="hint">Azimut : 0 = plein sud, −90 = est, +90 = ouest, 180 = nord.
+    La forme de la courbe est calculée par la géométrie solaire réelle (latitude 50,85° N),
+    pas par une cloche théorique.</p>
+    <p class="hint" id="prodHint"></p>
+    <button onclick="recalcGeo()" style="margin-top:8px">Recalculer depuis l'orientation</button>
+    <p class="hint">Ce bouton déduit de la géométrie <b>trois</b> valeurs qui doivent rester
+    cohérentes entre elles : le rendement annuel, la répartition saisonnière de la production
+    (colonne « % prod. ») et la part de journées couvertes. Utilisez-le après avoir changé
+    l'inclinaison ou un azimut, sinon les trois couches peuvent se contredire.</p>
+    <p class="hint"><b>D'où vient la référence de 1 050 kWh/kWc.</b> Valeur mesurée par
+    <a href="https://re.jrc.ec.europa.eu/pvg_tools/fr/" target="_blank">PVGIS 5.3</a> pour
+    l'adresse exacte (50,847 / 4,418), base SARAH3, silicium cristallin, 1 kWc, 14 % de pertes
+    système, montage sur toit intégré, inclinaison 35°, azimut 0 (plein sud), horizon calculé :
+    <b>1 049,77 kWh/an</b> pour 1 297 kWh/m² d'irradiation.<br>
+    <b>Attention</b> : « horizon calculé » ne tient compte que du relief, pas de votre cheminée
+    ni du bâtiment mitoyen. C'est donc une valeur sans ombrage proche, en première année. Si
+    l'ombrage vous coûte 5 à 8 %, abaissez cette référence d'autant.</p>
+  </div>
+
+  <div class="card">
+    <h2>Types de journée</h2>
+    <table><thead><tr><th></th><th>Jours</th><th>% prod.</th><th>Jour type</th><th>% couv.</th><th>Prod. couv.</th></tr></thead>
+    <tbody id="dtBody"></tbody></table>
+    <label>Durée moyenne d'une période couverte (jours)</label>
+    <input id="spell" type="number" value="2.5" step="0.5" min="1">
+    <details open><summary>Que signifie chaque colonne, et d'où viennent ces valeurs</summary>
+    <p class="hint">
+    <b>Jours</b> — nombre de journées de l'année rangées dans ce type. Été = mai à août,
+    intermédiaire = mars, avril, septembre et octobre, hiver = novembre à février. Total 365.<br>
+    <b>% prod.</b> — part de la production annuelle réalisée pendant ces journées.<br>
+    <b>Jour type</b> — numéro du jour de l'année servant de référence pour la position du soleil :
+    hauteur, azimut et durée du jour. 180 ≈ fin juin, 81 = équinoxe, 340 ≈ début décembre.<br>
+    <b>% couv.</b> — proportion de ces journées qui sont couvertes.<br>
+    <b>Prod. couv.</b> — ce que produit une journée couverte, en pourcentage de la production
+    moyenne du type. Le simulateur en déduit la production d'une journée claire, de sorte que la
+    moyenne de la séquence corresponde toujours au total annuel que vous avez saisi.</p>
+    <p class="hint"><b>Origine des valeurs.</b> Elles sont dérivées des normales climatiques de
+    Bruxelles 1991-2020 : 1 610 heures d'ensoleillement par an et une fraction d'insolation
+    mensuelle allant de 20 % en décembre à 43 % en août.<br><br>
+    La <b>part de production</b> combine le potentiel géométrique par ciel clair — calculé par le
+    même modèle solaire que la courbe de production — et un facteur de nébulosité déduit de la
+    fraction d'insolation de chaque mois. Elle donne 58 / 32 / 10 %. L'hiver pèse donc bien moins
+    qu'on ne l'imagine : 120 journées pour un dixième de la production.<br><br>
+    Le <b>pourcentage de journées couvertes</b> découle de la fraction d'insolation saisonnière :
+    41 % de soleil en été impliquent environ 40 % de journées couvertes, 23 % en hiver en
+    impliquent 70 %.<br><br>
+    La <b>production d'une journée couverte</b> est le seul paramètre que je n'ai pas pu tirer
+    directement des mesures : un modèle à deux états ne rend pas la continuité du réel. J'ai retenu
+    <b>35 à 40 %</b>, plus prudent que les 48 à 65 % qu'une dérivation naïve donnerait — un écart
+    plus marqué entre journées claires et couvertes est le cas défavorable pour une batterie, qui
+    trouve alors moins souvent le surplus régulier dont elle a besoin.</p>
+    <p class="hint">Sans cette variabilité, la simulation surestimerait fortement l'intérêt d'une
+    batterie : elle trouverait chaque jour exactement le même surplus.</p>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Consommation</h2>
+    <label>Consommation diffuse (kWh/an) — frigo, veilles, eau chaude, usages courants</label>
+    <input id="baseKwh" type="number" value="1000" step="50">
+    <label>Part consommée en journée, 9h–17h (%)</label>
+    <input id="baseDay" type="range" min="10" max="55" value="28"
+      oninput="baseDayLbl.textContent=this.value+' %'">
+    <p class="hint">Journée : <b id="baseDayLbl">28 %</b> — le reste se répartit la nuit et en soirée
+    selon une courbe résidentielle type. <span id="baseShape"></span></p>
+    <div class="row3">
+      <div><label>Indice été</label><input id="ixEte" type="number" value="0.92" step="0.02"></div>
+      <div><label>Indice inter.</label><input id="ixInter" type="number" value="1.00" step="0.02"></div>
+      <div><label>Indice hiver</label><input id="ixHiver" type="number" value="1.14" step="0.02"></div>
+    </div>
+    <div id="applList" style="margin-top:12px"></div>
+    <button onclick="addAppl()">+ Ajouter un appareil</button>
+    <p class="hint" id="consHint"></p>
+    <p class="hint">« Watts moyens » = énergie du cycle ÷ durée. Le <b>profil de puissance</b>
+    redistribue cette énergie dans le temps sans la modifier : un lave-linge chauffe l'eau au
+    départ, un lave-vaisselle chauffe puis sèche à la fin. La pointe qui en résulte est affichée —
+    c'est elle qui peut dépasser la production instantanée. Les appareils que vous ajoutez sont
+    constants par défaut.</p>
+    <p class="hint">« Caler sur le pic solaire » centre l'appareil sur le maximum de production ;
+    le <b>décalage</b> permet ensuite de les échelonner (0 h, +1,5 h, +3 h par défaut) pour éviter
+    qu'ils ne tournent tous en même temps et dépassent la production instantanée.</p>
+    <p class="hint"><b>Réglage sensible :</b> la part diurne de la consommation diffuse est
+    le paramètre qui pèse le plus sur l'intérêt d'une batterie. Plus vous consommez pendant
+    que les panneaux produisent, moins il reste de surplus à stocker. Faites-la varier de 15 à
+    45 % pour en mesurer l'effet sur le tableau des gains marginaux.</p>
+  </div>
+
+  <div class="card">
+    <h2>Véhicule électrique</h2>
+    <label><input type="checkbox" id="evOn"> Activer</label>
+    <div id="evBox" style="display:none">
+      <div class="row">
+        <div><label>kWh par an</label><input id="evKwh" type="number" value="1800" step="100"></div>
+        <div><label>Borne (kW)</label><input id="evKw" type="number" value="7.4" step="0.4"></div>
+      </div>
+      <label>Part rechargée en journée sur le surplus (%)</label>
+      <input id="evDay" type="range" min="0" max="100" value="50" oninput="evDayLbl.textContent=this.value+' %'">
+      <p class="hint">Recharge diurne : <b id="evDayLbl">50 %</b> — le reste se fait la nuit (23h–5h).</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Batterie</h2>
+    <label>Options de batterie — capacité <b>nominale</b> et prix du devis</label>
+    <table><thead><tr><th>Capacité (kWh)</th><th>Prix TVAC (€)</th><th>Utile</th><th>€/kWh</th><th></th></tr></thead>
+    <tbody id="battBody"></tbody></table>
+    <button onclick="addBatt()" class="sm" style="margin-top:6px">+ Ajouter une option</button>
+    <div class="row" style="margin-top:8px">
+      <div><label>Profondeur de décharge (%)</label><input id="battDod" type="number" value="90" step="1"></div>
+      <div></div>
+    </div>
+    <p class="hint">Reportez le <b>prix de chaque option tel qu'il figure sur le devis</b>, remise
+    et TVA comprises. La colonne €/kWh révèle si le fournisseur pratique une dégressivité — et
+    permet de comparer deux offres dont les capacités ne coïncident pas.<br>
+    <b>Limite :</b> la profondeur de décharge est unique pour toute la liste. Si vous comparez des
+    marques aux valeurs différentes — 90 % chez certains, 95 % chez d'autres — saisissez celle du
+    produit qui vous intéresse le plus, ou dupliquez le scénario.</p>
+    <div class="row">
+      <div><label>Rendement aller-retour</label><input id="battEta" type="number" value="0.90" step="0.01"></div>
+      <div><label>Perte de capacité (%/an)</label><input id="battDegr" type="number" value="1.5" step="0.1"></div>
+    </div>
+    <div class="row">
+      <div><label>Puissance max (kW)</label><input id="battKw" type="number" value="5" step="0.5"></div>
+      <div><label>Veille du système (W)</label><input id="battIdle" type="number" value="25" step="5"></div>
+    </div>
+    <p class="hint" id="battHint"></p>
+    <p class="hint">Trois pertes distinctes sont modélisées : la <b>conversion</b> à chaque
+    aller-retour, la <b>profondeur de décharge</b> qui rend inutilisable une part de la capacité
+    annoncée, et le <b>vieillissement</b> qui la réduit chaque année. S'y ajoute la
+    <b>veille</b> permanente de l'électronique, comptée en consommation.</p>
+  </div>
+
+  <div class="card">
+    <h2>Prix et incitants</h2>
+    <div class="row">
+      <div><label>Prix marginal évité (€/kWh)</label><input id="pElec" type="number" value="0.3818" step="0.001"></div>
+      <div><label>Tarif injection (€/kWh)</label><input id="pInj" type="number" value="0.040" step="0.005"></div>
+    </div>
+    <div class="row">
+      <div><label>Indexation élec. (%/an)</label><input id="infl" type="number" value="3" step="0.5"></div>
+      <div><label>Actualisation (%/an)</label><input id="disc" type="number" value="3" step="0.5"></div>
+    </div>
+    <div class="row3">
+      <div><label>CV / MWh</label><input id="cvRate" type="number" value="1.739" step="0.001"></div>
+      <div><label>€ / CV</label><input id="cvPrice" type="number" value="72" step="1"></div>
+      <div><label>Durée (ans)</label><input id="cvYears" type="number" value="10" step="1"></div>
+    </div>
+    <p class="hint"><b>Actualisation.</b> Un euro économisé en 2050 vaut moins qu'un euro
+    d'aujourd'hui, puisque celui-ci pourrait être placé entre-temps. Le taux d'actualisation
+    est le rendement de ce placement alternatif : il sert à ramener tous les gains futurs en
+    euros d'aujourd'hui pour calculer la VAN. Une VAN positive signifie que l'installation
+    fait mieux que ce placement.<br><br>
+    Comme les flux sont en euros courants — le prix de l'électricité est indexé plus haut — le
+    taux doit être <b>nominal</b>, pas réel. Choisissez-le selon ce que ferait l'argent sinon :
+    <b>2 %</b> sur un compte d'épargne, <b>3 %</b> pour un bon d'État ou un compte à terme,
+    <b>4 %</b> si vous rembourseriez un crédit hypothécaire par anticipation.<br><br>
+    Le taux n'a aucun effet sur le TRI, qui est intrinsèque au projet : c'est précisément
+    le taux pour lequel la VAN s'annule.</p>
+  </div>
+
+  <div class="card">
+    <h2>Investissement et remplacements</h2>
+    <div class="row">
+      <div><label>Coût installation PV (€ TVAC)</label><input id="capexPv" type="number" value="5102" step="50"></div>
+      <div><label>Dégradation panneaux (%/an)</label><input id="degr" type="number" value="0.4" step="0.1"></div>
+    </div>
+    <div class="row">
+      <div><label>Remplac. onduleur — année</label><input id="invYear" type="number" value="14" step="1"></div>
+      <div><label>Coût (€)</label><input id="invCost" type="number" value="1500" step="50"></div>
+    </div>
+    <div class="row">
+      <div><label>Remplac. batterie — année</label><input id="batYear" type="number" value="15" step="1"></div>
+      <div><label>% du prix initial</label><input id="batPct" type="number" value="50" step="5"></div>
+    </div>
+    <div class="row">
+      <div><label>Entretien / assurance (€/an)</label><input id="maint" type="number" value="35" step="5"></div>
+      <div><label>Horizon d'analyse (ans)</label><input id="horizon" type="number" value="25" step="5" min="5" max="40"></div>
+    </div>
+    <p class="hint">L'horizon est la durée sur laquelle TRI, VAN et cumul sont calculés. Vingt-cinq
+    ans correspond à la garantie de performance usuelle des panneaux. Le raccourcir pénalise
+    lourdement la batterie, dont l'essentiel du bénéfice arrive après son remplacement.</p>
+  </div>
+
+</div>
+
+<div id="out-wrap"><div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+  <button id="recalc" onclick="runNow()" style="font-weight:500">recalculer</button>
+  <label style="margin:0;display:flex;align-items:center;gap:6px">délai avant recalcul
+    <input id="debounce" type="number" value="4" step="1" min="0" style="width:60px"> s</label>
+</div>
+<div id="out">
+  <div class="card">
+    <h2>Comparaison des options</h2>
+    <div id="kpi" class="kpi"></div>
+    <div id="cmp"></div>
+    <h2 style="margin-top:18px">Rentabilité de chaque euro ajouté</h2>
+    <div id="marg"></div>
+    <p class="hint">Chaque ligne isole une décision : ce qu'elle coûte en plus, ce qu'elle rapporte
+    en plus. Les certificats verts, identiques dans tous les cas, s'annulent et n'apparaissent donc
+    qu'à la première ligne.</p>
+    <details><summary>Comment lire le TRI et la VAN</summary>
+    <p class="hint">
+    <b>Le TRI — taux de rentabilité interne</b> répond à « à quel taux annuel cet argent
+    travaille-t-il ? ». C'est le taux qu'il faudrait obtenir d'un placement pour arriver au même
+    résultat. Il ne dépend d'aucune hypothèse de votre part : il est intrinsèque au projet.<br><br>
+    <b>La VAN — valeur actuelle nette</b> répond à « au bout du compte, combien cette installation
+    m'aura-t-elle rapporté, en euros d'aujourd'hui ? ». On additionne toutes les économies futures,
+    on en retranche l'investissement, et on escompte les euros lointains au taux d'actualisation
+    que vous avez choisi. Une VAN positive signifie que l'installation bat ce placement.<br><br>
+    <b>Les deux ne classent pas pareil, et c'est normal.</b> Le TRI mesure l'efficacité, la VAN
+    mesure la taille du gain. Une petite installation très efficace affiche un TRI élevé mais une
+    VAN modeste. Le réflexe : <b>si votre capital est limité, suivez le TRI ; s'il ne l'est pas,
+    suivez la VAN</b>. La ligne surlignée est celle qui crée le plus de valeur.<br><br>
+    <b>Le retour</b> est le nombre d'années avant que le cumul des gains ne dépasse
+    l'investissement, sans actualisation. C'est le plus intuitif, mais il ignore tout ce qui se
+    passe ensuite — deux options peuvent se rembourser en cinq ans et ne rien rapporter du tout
+    de la même façon sur vingt-cinq.</p></details>
+    <p class="hint">Le gain annuel se mesure par rapport à la même maison sans panneaux ni batterie. Les certificats verts portent sur la production brute et sont identiques dans toutes les colonnes — ils ne départagent donc pas les options.</p>
+  </div>
+
+  <div class="card">
+    <h2>Journée type</h2>
+    <div class="tabs" id="dayTabs"></div>
+    <div id="chart"></div>
+    <div class="lg">
+      <span><i style="background:var(--prod)"></i>Production</span>
+      <span><i style="background:var(--cons)"></i>Consommation</span>
+      <span><i style="background:var(--batt)"></i>Charge batterie</span>
+      <span><i style="background:#c9d4e3"></i>Décharge batterie</span>
+      <span><i style="background:#ddd"></i>Niveau de charge</span>
+      <span><i style="background:#2e7d8a"></i>Injecté au réseau</span>
+      <span><i style="background:#b03a2e"></i>Prélevé au réseau</span>
+    </div>
+    <p class="hint"><b>Définitions.</b> Les deux taux partagent le même numérateur — l'énergie
+    solaire réellement utilisée dans la maison, batterie comprise, déduction faite des pertes de
+    stockage. Seul le dénominateur change :<br>
+    • <b>Autoconsommation</b> = cette énergie ÷ <b>production</b>. Réponse à : « quelle part de ce
+    que je produis reste chez moi ? » Elle baisse mécaniquement si vous ajoutez des panneaux.<br>
+    • <b>Indépendance</b> = cette énergie ÷ <b>consommation</b>, veille du système de stockage
+    incluse. Réponse à : « quelle part de ce que je consomme n'a pas été achetée au réseau ? »<br>
+    Les taux annuels sont les seuls comparables : sur une seule journée couverte, la maison
+    consomme du solaire stocké les jours précédents et un ratio quotidien dépasserait 100 %.</p>
+    <div style="display:none">
+    </div>
+    <div id="dayKpi" class="kpi" style="margin-top:12px"></div>
+    <div id="dayStats"></div>
+  </div>
+
+  <div class="card">
+    <h2>Étude de robustesse</h2>
+    <p class="hint">Tous les chiffres ci-dessus supposent des habitudes régulières. Cette étude
+    simule des centaines d'années en tirant au hasard la météo, les canicules, les absences, les
+    heures de départ des appareils et la fréquence des cycles — puis compare trois niveaux de
+    discipline. Elle s'ouvre dans un onglet séparé et peut prendre plusieurs minutes.</p>
+    <button onclick="openMC()" style="font-weight:500">Ouvrir l'étude de robustesse</button>
+  </div>
+
+  <div class="card">
+    <h2>Méthode et limites</h2>
+    <p class="hint">
+    <b>Comment ça marche.</b> Chaque type de journée est simulé en 96 pas de 15 minutes, sur une
+    séquence de 60 à 120 jours qui mélange journées claires et couvertes selon la météo paramétrée
+    (avec persistance : les périodes couvertes durent plusieurs jours). Le niveau de charge de la
+    batterie se propage d'un jour à l'autre, et la séquence est jouée deux fois pour atteindre un
+    régime stable. La batterie suit une règle simple : elle stocke le surplus, elle restitue quand
+    il manque.<br><br>
+    <b>Ce que le modèle ne fait pas.</b> Il ignore la météo réelle heure par heure, l'ombrage,
+    et il suppose que vos habitudes sont identiques chaque jour d'une même saison. Il ne gère pas
+    non plus les tarifs dynamiques quart-horaires — la batterie n'y fait que de l'autoconsommation,
+    jamais d'arbitrage sur les prix.<br><br>
+    <b>Écart avec l'analyse de référence.</b> Ce simulateur décrit la consommation appareil par
+    appareil, là où l'analyse initiale utilisait un profil statistique moyen plus étalé sur la
+    journée. Résultat : il se montre plus favorable à la batterie, d'environ 40 %. La vérité se
+    situe entre les deux, et elle ne sera tranchée que par vos courbes de charge quart-horaires
+    réelles, disponibles une fois le compteur numérique posé.</p>
+  </div>
+
+  <div class="card">
+    <h2>Chronique année par année</h2>
+    <label style="margin-top:0">Capacité affichée</label>
+    <select id="cfSel" style="max-width:220px"></select>
+    <div id="cf" style="margin-top:10px"></div>
+  </div>
+</div>
+</div>
+</div>
+
+<script>
+"use strict";
+const Q=96, $=id=>document.getElementById(id);
+let MC_S=0, MC=null;
+let BATT=[{nom:5.8,prix:2000},{nom:11.5,prix:3800},{nom:16,prix:4800}];
+const PAL=['#9aa7b8','#c07a3e','#4a6fa5','#7a5c9e','#2e7d8a','#5a7d2e','#b03a2e','#c9a227','#8a6f4a'];
+const fmt=(n,d=0)=>n.toLocaleString('fr-BE',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+/* ---------- types de journée ---------- */
+let DT=[
+ {k:'ete',   n:'Été',           days:123, share:58, doy:180, cloud:40, clow:35},
+ {k:'inter', n:'Intermédiaire', days:122, share:34, doy:81, cloud:50, clow:25},
+ {k:'hiver', n:'Hiver',         days:120, share:10, doy:340, cloud:70, clow:40}
+];
+function renderDT(){
+  $('dtBody').innerHTML=DT.map((d,i)=>`<tr><td>${d.n}</td>
+   <td><input type="number" value="${d.days}" step="1" oninput="DT[${i}].days=+this.value;schedule()"></td>
+   <td><input type="number" value="${d.share}" step="1" oninput="DT[${i}].share=+this.value;schedule()"></td>
+   <td><input type="number" value="${d.doy}" step="5" min="1" max="365" oninput="DT[${i}].doy=+this.value;schedule()"></td>
+   <td><input type="number" value="${d.cloud}" step="5" oninput="DT[${i}].cloud=+this.value;schedule()"></td>
+   <td><input type="number" value="${d.clow}" step="5" oninput="DT[${i}].clow=+this.value;schedule()"></td></tr>`).join('');
+}
+
+/* ---------- appareils ---------- */
+let APPL=[
+ {n:'Soirée (TV, etc.)',w:180,  h:4,   start:19,   freq:1, s:['ete','inter','hiver'], flex:false},
+ {n:'Cuisine / repas',  w:800,  h:1.5, start:18.5, freq:1, s:['ete','inter','hiver'], flex:false, prof:'four'},
+ {n:'Éclairage soirée', w:150,  h:5,   start:17.5, freq:1, s:['inter','hiver'],       flex:false},
+ {n:'Lave-vaisselle',   w:850,  h:2,   start:12,   freq:2, s:['ete','inter','hiver'], flex:true, off:0,   prof:'lave-vaisselle'},
+ {n:'Sèche-linge',      w:1700, h:1.5, start:12,   freq:3, s:['ete','inter','hiver'], flex:true, off:3,   prof:'seche-linge'},
+ {n:'Lave-linge',       w:600,  h:2,   start:12,   freq:3, s:['ete','inter','hiver'], flex:true, off:1.5, prof:'lave-linge'},
+ {n:'Clim — nuit',      w:420,  h:9,   start:22,   freq:1, s:['ete'],                 flex:false},
+ {n:'Clim — journée',   w:210,  h:4,   start:14,   freq:1, s:['ete'],                 flex:false}
+];
+function renderBatt(){
+  const dod=Math.max(10,Math.min(100,+($('battDod').value||90)))/100;
+  $('battBody').innerHTML=BATT.map((b,i)=>`<tr>
+    <td><input type="number" value="${b.nom}" step="0.1" oninput="BATT[${i}].nom=+this.value;schedule()"></td>
+    <td><input type="number" value="${b.prix}" step="50" oninput="BATT[${i}].prix=+this.value;schedule()"></td>
+    <td class="num">${fmt(b.nom*dod,2)} kWh</td>
+    <td class="num">${b.nom>0?fmt(b.prix/b.nom):'—'} €</td>
+    <td><button class="sm" onclick="BATT.splice(${i},1);renderBatt();schedule()">×</button></td></tr>`).join('');
+}
+function addBatt(){ BATT.push({nom:5,prix:1800}); renderBatt(); schedule(); }
+function renderAppl(){
+  $('applList').innerHTML=APPL.map((a,i)=>`<div class="appl">
+   <div class="hd"><input type="text" value="${a.n}" oninput="APPL[${i}].n=this.value">
+   <button class="sm" onclick="APPL.splice(${i},1);renderAppl();schedule()">×</button></div>
+   <div class="row">
+     <div><label>Profil de puissance</label><select onchange="APPL[${i}].prof=this.value;renderAppl();schedule()">
+       ${Object.entries(PROFILS).map(([k,v])=>`<option value="${k}" ${(a.prof||'plat')===k?'selected':''}>${v.n}</option>`).join('')}
+     </select></div>
+     <div><label>Pointe atteinte</label><input type="text" value="${fmt(peakW(a))} W" disabled
+       style="background:var(--accent-bg);color:var(--muted)"></div>
+   </div>
+   <div class="row3">
+     <div><label>Watts moyens</label><input type="number" value="${a.w}" step="50" oninput="APPL[${i}].w=+this.value;schedule()"></div>
+     <div><label>Durée (h)</label><input type="number" value="${a.h}" step="0.25" oninput="APPL[${i}].h=+this.value;schedule()"></div>
+     <div><label>${a.flex?'Décalage (h)':'Départ (h)'}</label><input type="number"
+       value="${a.flex?(a.off||0):a.start}" step="0.5"
+       oninput="${a.flex?`APPL[${i}].off=+this.value`:`APPL[${i}].start=+this.value`};schedule()"></div>
+   </div>
+   <div class="row">
+     <div><label>1 jour sur</label><input type="number" value="${a.freq}" min="1" step="1" oninput="APPL[${i}].freq=+this.value;schedule()"></div>
+     <div><label>Saisons</label><div style="font-size:12px;padding-top:5px">
+       ${DT.map(d=>`<label style="display:inline;margin-right:7px"><input type="checkbox" ${a.s.includes(d.k)?'checked':''}
+         onchange="togS(${i},'${d.k}',this.checked)">${d.n.slice(0,4)}</label>`).join('')}
+     </div></div>
+   </div>
+   <label style="margin-top:6px"><input type="checkbox" ${a.flex?'checked':''}
+     onchange="APPL[${i}].flex=this.checked;renderAppl();schedule()"> Caler sur le pic solaire</label>
+   </div>`).join('');
+}
+function togS(i,k,on){const s=APPL[i].s; if(on){if(!s.includes(k))s.push(k)}else{APPL[i].s=s.filter(x=>x!==k)} schedule()}
+function addAppl(){APPL.push({n:'Nouvel appareil',w:500,h:1,start:12,freq:1,s:DT.map(d=>d.k),flex:false,off:0,prof:'plat'});renderAppl();schedule()}
+
+/* ---------- profils de puissance des appareils ---------- */
+// 20 points relatifs sur la durée du cycle ; renormalisés à moyenne 1
+const PROFILS={
+ plat:{n:'Constant',p:[1]},
+ 'lave-linge':{n:'Lave-linge (chauffe au début)',
+   p:[4.6,4.6,4.6,2.6,0.3,0.25,0.25,0.25,0.25,0.25,0.25,0.25,0.3,0.3,0.35,0.35,0.4,0.9,1.4,1.0]},
+ 'lave-vaisselle':{n:'Lave-vaisselle (chauffe + séchage)',
+   p:[0.3,0.3,3.4,3.4,3.4,0.3,0.25,0.25,0.25,0.25,0.3,2.8,2.8,2.8,0.3,0.3,1.9,2.3,2.3,1.6]},
+ 'seche-linge':{n:'Sèche-linge (plateau + refroidissement)',
+   p:[0.6,1.1,1.3,1.3,1.3,1.3,1.3,1.3,1.3,1.3,1.3,1.3,1.3,1.25,1.2,1.0,0.8,0.5,0.3,0.2]},
+ four:{n:'Four (préchauffage puis maintien)',
+   p:[2.4,2.4,2.2,1.4,0.7,0.6,0.6,0.6,0.6,0.6,0.6,0.6,0.6,0.6,0.6,0.6,0.6,0.6,0.6,0.5]}
+};
+function shapeCurve(kind,nq){
+  const raw=(PROFILS[kind]||PROFILS.plat).p;
+  const moy=raw.reduce((a,b)=>a+b,0)/raw.length;
+  const out=new Array(nq); const SUB=12;
+  const at=u=>{                       // u dans [0,1] le long du cycle
+    if(raw.length===1) return raw[0];
+    const x=u*(raw.length-1), i=Math.min(raw.length-2,Math.floor(x)), f=x-i;
+    return raw[i]*(1-f)+raw[i+1]*f;
+  };
+  for(let j=0;j<nq;j++){              // on INTÈGRE sur le quart d'heure, on n'échantillonne pas
+    let acc=0;
+    for(let k=0;k<SUB;k++) acc+=at((j+(k+0.5)/SUB)/nq);
+    out[j]=acc/SUB/moy;
+  }
+  const k=nq/out.reduce((a,b)=>a+b,0);   // l'énergie du cycle reste inchangée
+  return out.map(v=>v*k);
+}
+function peakW(a){
+  const nq=Math.max(1,Math.round(a.h*4));
+  return a.w*Math.max(...shapeCurve(a.prof||'plat',nq));
+}
+/* ---------- courbe de consommation diffuse ---------- */
+const DIFF_H=[0.55,0.50,0.48,0.47,0.48,0.55,0.75,1.15,1.10,0.85,0.80,0.85,
+              0.95,0.90,0.80,0.80,0.85,0.95,1.20,1.35,1.30,1.15,1.00,0.72];
+function diffuseCurve(kwhDay,dayShare){
+  // on deforme la courbe type pour atteindre la part diurne demandee, puis on renormalise
+  const isDay=h=>h>=9&&h<17;
+  let sd=0,so=0;
+  DIFF_H.forEach((v,h)=>{ if(isDay(h)) sd+=v; else so+=v; });
+  const tgt=Math.min(.9,Math.max(.05,dayShare));
+  const kd=so? tgt/(1-tgt)*so/sd : 1;
+  const w=DIFF_H.map((v,h)=>isDay(h)?v*kd:v);
+  const tot=w.reduce((a,b)=>a+b,0);
+  const c=new Array(Q);
+  for(let q=0;q<Q;q++) c[q]=w[Math.floor(q/4)]/tot*kwhDay/4;
+  return c;
+}
+/* ---------- courbe de production ---------- */
+function pvCurve(total,doy,tilt,azA,azB,shA){
+  // position du soleil et incidence sur chaque pan — latitude Bruxelles
+  const LAT=50.85, r=Math.PI/180, s_=Math.sin, c_=Math.cos;
+  const decl=23.45*s_(360*(284+doy)/365*r);
+  const KD=0.55;                       // part directe du rayonnement (le reste est diffus)
+  const vf=(1+c_(tilt*r))/2;           // facteur de vue du ciel pour un plan incliné
+  const c=new Array(Q).fill(0); let sum=0;
+  for(let q=0;q<Q;q++){
+    const t=(q+0.5)/4, H=(t-13)*15;    // angle horaire, midi solaire ≈ 13h légale
+    const sinAlt=s_(LAT*r)*s_(decl*r)+c_(LAT*r)*c_(decl*r)*c_(H*r);
+    if(sinAlt<=0.02){ continue; }
+    const alt=Math.asin(Math.min(1,sinAlt));
+    const az=Math.atan2(s_(H*r), c_(H*r)*s_(LAT*r)-Math.tan(decl*r)*c_(LAT*r))/r;
+    const am=1/Math.max(0.05,sinAlt);  // masse d'air : atténuation près de l'horizon
+    const clear=Math.pow(0.75,Math.pow(am,0.6));
+    let v=0;
+    [[azA,shA/100],[azB,1-shA/100]].forEach(([pa,w])=>{
+      if(w<=0) return;
+      const cosI=c_(alt)*s_(tilt*r)*c_((az-pa)*r)+s_(alt)*c_(tilt*r);
+      const direct=KD*clear*Math.max(0,cosI);
+      const diffus=(1-KD)*vf*sinAlt;
+      v+=w*(direct+diffus);
+    });
+    c[q]=v; sum+=v;
+  }
+  return sum?c.map(v=>v*total/sum):c;
+}
+// Normales climatiques de Bruxelles 1991-2020 : fraction d'insolation mensuelle
+const SF=[.22,.26,.34,.41,.41,.40,.41,.43,.41,.34,.25,.20];
+const MDAYS=[31,28,31,30,31,30,31,31,30,31,30,31];
+const MDOY=[16,45,75,105,136,166,197,228,258,289,319,350];
+const MTYPE=['hiver','hiver','inter','inter','ete','ete','ete','ete','inter','inter','hiver','hiver'];
+function clearSkyDay(doy,tilt,azA,azB,shA){
+  const LAT=50.85,r=Math.PI/180,s_=Math.sin,c_=Math.cos,KD=.55,vf=(1+c_(tilt*r))/2;
+  const decl=23.45*s_(360*(284+doy)/365*r); let e=0;
+  for(let q=0;q<Q;q++){
+    const t=(q+.5)/4,H=(t-13)*15;
+    const sa=s_(LAT*r)*s_(decl*r)+c_(LAT*r)*c_(decl*r)*c_(H*r);
+    if(sa<=.02) continue;
+    const alt=Math.asin(Math.min(1,sa));
+    const az=Math.atan2(s_(H*r),c_(H*r)*s_(LAT*r)-Math.tan(decl*r)*c_(LAT*r))/r;
+    const cl=Math.pow(.75,Math.pow(1/Math.max(.05,sa),.6));
+    [[azA,shA/100],[azB,1-shA/100]].forEach(([pa,w])=>{
+      if(w<=0) return;
+      const ci=c_(alt)*s_(tilt*r)*c_((az-pa)*r)+s_(alt)*c_(tilt*r);
+      e+=w*(KD*cl*Math.max(0,ci)+(1-KD)*vf*sa);});
+  }
+  return e;
+}
+function geoShares(tilt,azA,azB,shA){
+  const acc={ete:0,inter:0,hiver:0}; let tot=0;
+  for(let m=0;m<12;m++){
+    const p=clearSkyDay(MDOY[m],tilt,azA,azB,shA)*MDAYS[m]*(0.22+0.78*SF[m]);
+    acc[MTYPE[m]]+=p; tot+=p;
+  }
+  return {ete:acc.ete/tot*100, inter:acc.inter/tot*100, hiver:acc.hiver/tot*100};
+}
+function geoCloud(){
+  const acc={},dj={};
+  ['ete','inter','hiver'].forEach(k=>{acc[k]=0;dj[k]=0;});
+  for(let m=0;m<12;m++){ acc[MTYPE[m]]+=SF[m]*MDAYS[m]; dj[MTYPE[m]]+=MDAYS[m]; }
+  const out={};
+  ['ete','inter','hiver'].forEach(k=>{
+    const sf=acc[k]/dj[k];
+    out[k]=Math.round(Math.max(5,Math.min(95,(0.65-sf)/0.60*100)));
+  });
+  return out;
+}
+function viderPV(){ $('pvA').value=''; $('pvB').value=''; runNow(); }
+function recalcGeo(){
+  const cfg=readCfg();
+  const sh=geoShares(cfg.tilt,cfg.azA,cfg.azB,cfg.shA), cl=geoCloud();
+  DT.forEach(d=>{ d.share=Math.round(sh[d.k]); d.cloud=cl[d.k]; });
+  if(!cfg.mesure){
+    const i=yieldIndex(cfg.tilt,cfg.azA,cfg.azB,cfg.shA)/yieldIndex(cfg.tilt,0,0,100);
+    $('yieldKwc').value=Math.round(cfg.refSud*i/5)*5;
+  }
+  renderDT(); runNow();
+}
+const _yiCache={};
+function yieldIndex(tilt,azA,azB,shA){
+  const key=`${tilt}|${azA}|${azB}|${shA}`;
+  if(key in _yiCache) return _yiCache[key];
+  // irradiation annuelle captée par le plan, en indice relatif
+  const LAT=50.85,r=Math.PI/180,s_=Math.sin,c_=Math.cos,KD=.55,vf=(1+c_(tilt*r))/2;
+  let e=0;
+  for(let doy=2;doy<=365;doy+=5){
+    const decl=23.45*s_(360*(284+doy)/365*r);
+    for(let q=0;q<Q;q+=2){
+      const t=(q+.5)/4,H=(t-13)*15;
+      const sa=s_(LAT*r)*s_(decl*r)+c_(LAT*r)*c_(decl*r)*c_(H*r);
+      if(sa<=.02) continue;
+      const alt=Math.asin(Math.min(1,sa));
+      const az=Math.atan2(s_(H*r),c_(H*r)*s_(LAT*r)-Math.tan(decl*r)*c_(LAT*r))/r;
+      const cl=Math.pow(.75,Math.pow(1/Math.max(.05,sa),.6));
+      [[azA,shA/100],[azB,1-shA/100]].forEach(([pa,w])=>{
+        if(w<=0) return;
+        const ci=c_(alt)*s_(tilt*r)*c_((az-pa)*r)+s_(alt)*c_(tilt*r);
+        e+=w*(KD*cl*Math.max(0,ci)+(1-KD)*vf*sa);
+      });
+    }
+  }
+  _yiCache[key]=e;
+  return e;
+}
+/* ---------- consommation d'un jour du cycle ---------- */
+function dayLoad(dt,dayIdx,baseCurve,peakQ,parts,mc){
+  const mul=mc?mc.baseMul:1;
+  const L=mul===1?baseCurve.slice():baseCurve.map(v=>v*mul);
+  if(parts){ parts.length=0; parts.push({n:'Consommation diffuse',c:L.slice()}); }
+  for(const a of APPL){
+    if(!a.s.includes(dt.k)) continue;
+    let on, w=a.w, h=a.h, start=a.start, off=(a.off||0), flex=a.flex;
+    if(mc){
+      const r=mc.rng, p=mc.prof;
+      on = r() < 1/Math.max(1,a.freq) * mc.freqMul;
+      w *= 1 + p.pw*(r()*2-1);
+      h *= 1 + p.ph*(r()*2-1);
+      if(flex){
+        // la discipline ne joue que sur les appareils qu'on programme
+        if(r() < p.pmiss){ flex=false; start = r()<0.5 ? 19+r()*3 : 7+r()*2; }
+        else off += p.pjit*(r()*2-1);
+      } else {
+        // repas, éclairage, clim : la vie décale un peu, jamais beaucoup
+        start += Math.min(1,p.pjit)*(r()*2-1);
+      }
+      if(mc.climMul!==1 && /clim/i.test(a.n)) w *= mc.climMul;
+    } else on = dayIdx % Math.max(1,a.freq) === 0;
+    const cur = parts ? new Array(Q).fill(0) : null;
+    if(on && w>0 && h>0){
+      const nq=Math.max(1,Math.round(h*4));
+      let q0=flex ? Math.round(peakQ-nq/2+off*4) : Math.round(start*4);
+      q0=((q0%Q)+Q)%Q;
+      const e=w/1000/4, sh=shapeCurve(a.prof||'plat',nq);
+      for(let j=0;j<nq;j++){ const v=e*sh[j]; L[(q0+j)%Q]+=v; if(cur) cur[(q0+j)%Q]+=v; }
+    }
+    if(parts) parts.push({n:a.n,c:cur});
+  }
+  return L;
+}
+
+/* ---------- simulation d'un type de journée ---------- */
+function simDay(dt,P,cfg,cap,soc){
+  const nq=Math.round(cfg.evKw/4*1000)/1000;
+  const load=dt._load, prod=dt._prod;
+  const res={imp:0,exp:0,auto:0,ch:0,dis:0,clip:0,socS:new Array(Q),chS:new Array(Q).fill(0),
+             disS:new Array(Q).fill(0),evS:new Array(Q).fill(0),gridS:new Array(Q).fill(0),
+             prodS:new Array(Q).fill(0),loadS:new Array(Q).fill(0),cov:null};
+  const parts=dt._parts||null;
+  if(parts) res.cov=parts.map(()=>({kwh:0,sol:0}));
+  let evCov={kwh:0,sol:0};
+  const eta=Math.sqrt(cfg.battEta), pmax=cfg.battKw/4;
+  // besoin VE du jour
+  let evDay=0, evNight=0;
+  if(cfg.evOn){ const d=cfg.evKwh/365; evDay=d*cfg.evDay/100; evNight=d-evDay; }
+  let evRest=evDay;
+  const nightQ=q=>{const h=q/4; return h>=23||h<5;};
+  const dayWin=q=>{const h=q/4; return h>=9&&h<17;};
+  let nightLeft=evNight, nightQs=0;
+  for(let q=0;q<Q;q++) if(nightQ(q)) nightQs++;
+  for(let q=0;q<Q;q++){
+    let p=Math.min(prod[q],cfg.invKw/4);
+    res.clip+=prod[q]-p;
+    let l=load[q], ev=0;
+    if(cfg.evOn && nightQ(q)){ ev=nightLeft/nightQs; l+=ev; }
+    let net=l-p;
+    // recharge VE sur surplus
+    if(cfg.evOn && evRest>0 && dayWin(q) && net<0){
+      const take=Math.min(-net,cfg.evKw/4,evRest);
+      evRest-=take; net+=take; ev+=take; l+=take;
+    }
+    // fin de fenêtre : complément réseau si le solaire n'a pas suffi
+    if(cfg.evOn && evRest>0 && q===Math.round(17*4)-1){ net+=evRest; ev+=evRest; l+=evRest; evRest=0; }
+    if(cap>0){
+      l+=cfg.battIdle/1000/4;
+      net+=cfg.battIdle/1000/4;
+      if(net<0){ const c=Math.min(-net,(cap-soc)/eta,pmax); soc+=c*eta; net+=c; res.ch+=c; res.chS[q]=c; }
+      else if(net>0){ const d=Math.min(net,soc*eta,pmax); soc-=d/eta; net-=d; res.dis+=d; res.disS[q]=d; }
+    }
+    if(net>0) res.imp+=net; else res.exp+=-net;
+    res.evS[q]=ev; res.gridS[q]=net; res.prodS[q]=p; res.loadS[q]=l;
+    // attribution : quelle part de la conso de ce quart d'heure vient du solaire ?
+    const grid=Math.max(0,net), solF=l>1e-9?Math.max(0,Math.min(1,(l-grid)/l)):0;
+    if(parts) parts.forEach((pt,i)=>{ const v=pt.c[q]; res.cov[i].kwh+=v; res.cov[i].sol+=v*solF; });
+    evCov.kwh+=ev; evCov.sol+=ev*solF;
+    res.socS[q]=soc;
+  }
+  res.soc=soc; res.evCov=evCov;
+  return res;
+}
+
+/* ---------- année complète ---------- */
+function simYear(cfg,cap){
+  const tot={imp:0,exp:0,prod:0,load:0,cons:0,ch:0,dis:0,clip:0,byPart:{}};
+  for(const dt of DT){
+    const cyc=Math.min(12,APPL.filter(a=>a.s.includes(dt.k)).reduce((m,a)=>lcm(m,Math.max(1,a.freq)),1));
+    const peakQ=argmax(dt._prodBase);
+    const S=(typeof MC_S!=='undefined'&&MC_S)?MC_S:Math.min(120,Math.max(60,cyc*8));
+    const wx=weatherSeq(S,dt.cloud/100,cfg.spell,(MC?MC.seed:7919)+dt.k.length*131);
+    const cur=seqCurves(dt,wx);
+    let soc=0, days=[];
+    for(let pass=0;pass<2;pass++){
+      days=[];
+      for(let d=0;d<S;d++){
+        const cloudy=wx[d];
+        dt._parts=dt._parts||[];
+        let mc=null;
+        if(MC){
+          const r=MC.rng;
+          const away = r() < MC.pAway;
+          const heat = (dt.k==='ete') && (r() < MC.pHeat);
+          mc={rng:r, prof:MC.prof, baseMul: away?MC.awayMul:1,
+              freqMul: away?0.05:1, climMul: heat?MC.heatMul:(away?0:1)};
+        }
+        dt._load=dayLoad(dt,d%cyc,dt._base,peakQ,dt._parts,mc);
+        dt._prod=cloudy?cur.lo:cur.hi;
+        const r=simDay(dt,null,cfg,cap,soc); soc=r.soc; days.push(r);
+      }
+    }
+    const w=dt.days/S;
+    for(const r of days){
+      tot.imp+=r.imp*w; tot.exp+=r.exp*w; tot.ch+=r.ch*w; tot.dis+=r.dis*w; tot.clip+=r.clip*w;
+      tot.cons+=r.loadS.reduce((a,b)=>a+b,0)*w;
+      tot.prod+=(r.prodS.reduce((a,b)=>a+b,0)+r.clip)*w;
+      if(r.cov) r.cov.forEach((c,i)=>{
+        const nm=dt._parts[i].n;
+        tot.byPart[nm]=tot.byPart[nm]||{kwh:0,sol:0};
+        tot.byPart[nm].kwh+=c.kwh*w; tot.byPart[nm].sol+=c.sol*w;});
+      if(r.evCov&&r.evCov.kwh>0){ tot.byPart['Véhicule électrique']=tot.byPart['Véhicule électrique']||{kwh:0,sol:0};
+        tot.byPart['Véhicule électrique'].kwh+=r.evCov.kwh*w; tot.byPart['Véhicule électrique'].sol+=r.evCov.sol*w;}
+    }
+    dt._sample=days[0];
+  }
+  tot.load=tot.imp+tot.prod-tot.exp-tot.clip;
+  return tot;
+}
+function weatherSeq(n,f,spell,seed){
+  // chaine de Markov a 2 etats : les journees couvertes arrivent par series
+  f=Math.min(.95,Math.max(0,f)); spell=Math.max(1,spell);
+  const pCS=1/spell, pSC=f>=1?1:f*pCS/(1-f);
+  let x=seed||12345; const rnd=()=>{x=(x*1103515245+12345)&0x7fffffff; return x/0x7fffffff;};
+  const out=[]; let c=false;
+  for(let i=0;i<n;i++){ c = c ? rnd()>pCS : rnd()<pSC; out.push(c); }
+  return out;
+}
+function seqCurves(dt,seq){
+  // la fraction de jours couverts réellement tirée diffère un peu de la cible :
+  // on recale les deux courbes pour que la moyenne de la séquence vaille _prodTotal
+  const nc=seq.reduce((a,b)=>a+(b?1:0),0), S=seq.length;
+  const moy=(nc*dt._lowTotal+(S-nc)*dt._highTotal)/S;
+  const k=moy>0?dt._prodTotal/moy:1;
+  return {hi:dt._prodHigh.map(v=>v*k), lo:dt._prodLow.map(v=>v*k)};
+}
+function lcm(a,b){const g=(x,y)=>y?g(y,x%y):x; return a*b/g(a,b)}
+function argmax(a){let m=0,i=0; a.forEach((v,j)=>{if(v>m){m=v;i=j}}); return i}
+
+/* ---------- économie ---------- */
+function economics(gain,capex,cfg,cap,gainAt,prixBatt){
+  const rows=[]; let cum=-capex, npv=-capex, pb=null; const fl=[];
+  const battCost=prixBatt||0;
+  const HZ=Math.max(5,Math.min(40,Math.round(cfg.horizon||25)));
+  for(let y=1;y<=HZ;y++){
+    const dg=Math.pow(1-cfg.degr/100,y-1);
+    // vieillissement de la batterie : la capacité utile décroît, et repart à neuf au remplacement
+    const age=(cap>0 && y>cfg.batYear)? y-1-cfg.batYear : y-1;
+    const capY=cap*Math.pow(1-cfg.battDegr/100,age);
+    const gY=(cap>0 && gainAt)? gainAt(capY) : gain;
+    const g=gY*Math.pow(1+cfg.infl/100,y-1)*dg;
+    const cv=y<=cfg.cvYears ? cfg.prodY1*dg/1000*cfg.cvRate*cfg.cvPrice : 0;
+    let c=cfg.maint*Math.pow(1.02,y-1);
+    if(y===cfg.invYear) c+=cfg.invCost;
+    if(cap>0 && y===cfg.batYear) c+=battCost*cfg.batPct/100;
+    const net=g+cv-c; const prev=cum; cum+=net; fl.push(net);
+    npv+=net/Math.pow(1+cfg.disc/100,y);
+    if(pb===null&&cum>=0) pb=y-1+(-prev)/net;
+    rows.push({y,g,cv,c,net,cum});
+  }
+  let lo=-0.9,hi=1.5;
+  for(let i=0;i<200;i++){const m=(lo+hi)/2;
+    let v=-capex; fl.forEach((f,j)=>v+=f/Math.pow(1+m,j+1));
+    if(v>0) lo=m; else hi=m;}
+  return {rows,npv,irr:(lo+hi)/2,pb,cum};
+}
+
+/* ============ Étude de robustesse : Monte-Carlo sur les habitudes ============ */
+const PROFILS_MC=[
+ {k:'rigoureux', n:'Rigoureux',  d:'Vous lancez chaque cycle au bon moment, presque sans exception',
+  pjit:0.5, pmiss:0.02, pw:0.05, ph:0.05},
+ {k:'normal',    n:'Normal',     d:'Vous y pensez souvent, vous oubliez parfois',
+  pjit:1.5, pmiss:0.12, pw:0.12, ph:0.12},
+ {k:'insouciant',n:'Insouciant', d:'Vous vivez votre vie sans regarder le soleil',
+  pjit:4.0, pmiss:0.35, pw:0.20, ph:0.20}
+];
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const q=(arr,p)=>{const a=[...arr].sort((x,y)=>x-y);const i=(a.length-1)*p;
+  const lo=Math.floor(i),hi=Math.ceil(i);return a[lo]+(a[hi]-a[lo])*(i-lo);};
+const moy=a=>a.reduce((x,y)=>x+y,0)/a.length;
+
+let MCstate={running:false,draws:0,done:0,res:{}};
+
+function mcInit(){
+  PROFILS_MC.forEach(p=>MCstate.res[p.k]={bill0:[],bill1:[],gain:[],cons:[]});
+  MCstate.done=0;
+}
+
+function mcOneDraw(cfg,capU,prof,seed){
+  const rng=mulberry(seed);
+  MC={rng, prof, seed:(seed*2654435761)>>>0,
+      pAway:cfg._pAway, awayMul:0.25, pHeat:cfg._pHeat, heatMul:cfg._heatMul};
+  MC_S=cfg._S;
+  const t0=simYear(cfg,0);
+  MC.rng=mulberry(seed);            // même tirage d'habitudes pour les deux capacités
+  const t1=simYear(cfg,capU);
+  MC=null; MC_S=0;
+  const ref=t0.cons*cfg.pElec;
+  const b0=t0.imp*cfg.pElec-t0.exp*cfg.pInj;
+  const b1=t1.imp*cfg.pElec-t1.exp*cfg.pInj;
+  return {ref,b0,b1,cons:t0.cons};
+}
+
+function mcStart(){
+  if(MCstate.running) return;
+  const cfg=readCfg();
+  cfg._S=+($('mcS').value||40);
+  cfg._pAway=+($('mcAway').value||14)/365;
+  cfg._pHeat=+($('mcHeat').value||10)/123;
+  cfg._heatMul=+($('mcHeatMul').value||2.5);
+  prepDT(cfg);
+  const nom=+($('mcCap').value||5.8), capU=nom*cfg.battDod/100;
+  MCstate.draws=+($('mcN').value||600);
+  MCstate.running=true; mcInit();
+  $('mcGo').textContent='arrêter'; $('mcGo').onclick=mcStop;
+  const t0=performance.now();
+  const step=()=>{
+    if(!MCstate.running) return;
+    const lot=Math.max(1,Math.round(MCstate.draws/60));
+    for(let i=0;i<lot && MCstate.done<MCstate.draws;i++){
+      const d=MCstate.done;
+      PROFILS_MC.forEach((p,pi)=>{
+        const r=mcOneDraw(cfg,capU,p,1000003*(pi+1)+d*7919);
+        const R=MCstate.res[p.k];
+        R.bill0.push(r.b0); R.bill1.push(r.b1);
+        R.gain.push(r.b0-r.b1); R.cons.push(r.cons);
+      });
+      MCstate.done++;
+    }
+    const el=(performance.now()-t0)/1000;
+    const reste=MCstate.done? el/MCstate.done*(MCstate.draws-MCstate.done):0;
+    $('mcProg').style.width=(MCstate.done/MCstate.draws*100).toFixed(1)+'%';
+    $('mcStat').textContent=`${MCstate.done} / ${MCstate.draws} tirages — ${el.toFixed(0)} s écoulées`
+      +(MCstate.done<MCstate.draws?`, ~${reste.toFixed(0)} s restantes`:' — terminé');
+    mcRender(cfg,nom,capU);
+    if(MCstate.done<MCstate.draws) setTimeout(step,0);
+    else { MCstate.running=false; $('mcGo').textContent='relancer'; $('mcGo').onclick=mcStart; }
+  };
+  setTimeout(step,0);
+}
+function mcStop(){ MCstate.running=false; $('mcGo').textContent='reprendre'; $('mcGo').onclick=mcStart; }
+
+function mcRender(cfg,nom,capU){
+  if(MCstate.done<2) return;
+  const ref=PROFILS_MC[0].k;
+  let h=`<table><thead><tr><th>Profil d'habitudes</th><th>Facture sans batterie</th>
+    <th>Écart au rigoureux</th><th>Fourchette P10–P90</th><th>Gain de la batterie</th>
+    <th>Facture avec batterie</th></tr></thead><tbody>`;
+  const base=moy(MCstate.res[ref].bill0);
+  for(const p of PROFILS_MC){
+    const R=MCstate.res[p.k];
+    const m0=moy(R.bill0), m1=moy(R.bill1), g=moy(R.gain);
+    const lo=q(R.bill0,.10), hi=q(R.bill0,.90);
+    h+=`<tr><td><b>${p.n}</b><br><span style="font-size:11px;color:var(--muted)">${p.d}</span></td>
+      <td class="num">${fmt(m0)} €</td>
+      <td class="num ${m0-base>1?'neg':''}">${p.k===ref?'—':(m0-base>0?'+':'')+fmt(m0-base)+' €'}</td>
+      <td class="num">${fmt(lo)} – ${fmt(hi)} €</td>
+      <td class="num pos">${fmt(g)} €</td>
+      <td class="num">${fmt(m1)} €</td></tr>`;
+  }
+  h+='</tbody></table>';
+  $('mcTab').innerHTML=h;
+
+  // boîtes à moustaches : sans batterie et avec batterie, sur la même échelle
+  const all=PROFILS_MC.flatMap(p=>MCstate.res[p.k].bill0.concat(MCstate.res[p.k].bill1));
+  const mn=Math.min(...all), mx=Math.max(...all), pad=(mx-mn)*0.04;
+  const W=680, L=118, R=58, BAND=66, TOP=34;
+  const X=v=>L+(W-L-R)*(v-mn+pad)/Math.max(1e-6,(mx-mn)+2*pad);
+  const H=TOP+PROFILS_MC.length*BAND+30;
+  let g=`<svg viewBox="0 0 ${W} ${H}" role="img"><title>Dispersion de la facture annuelle</title>`;
+  g+=`<rect x="${L}" y="14" width="10" height="10" fill="var(--accent)" opacity=".3"/>
+      <text x="${L+15}" y="23" font-size="11" fill="var(--muted)">sans batterie</text>
+      <rect x="${L+118}" y="14" width="10" height="10" fill="#2e7d8a" opacity=".3"/>
+      <text x="${L+133}" y="23" font-size="11" fill="var(--muted)">avec batterie</text>`;
+  const boite=(arr,y,col)=>{
+    const a=q(arr,.05),b=q(arr,.25),m=q(arr,.5),c=q(arr,.75),d=q(arr,.95);
+    let t=`<line x1="${X(a)}" y1="${y}" x2="${X(d)}" y2="${y}" stroke="${col}" opacity=".55"/>`;
+    t+=`<line x1="${X(a)}" y1="${y-4}" x2="${X(a)}" y2="${y+4}" stroke="${col}" opacity=".55"/>`;
+    t+=`<line x1="${X(d)}" y1="${y-4}" x2="${X(d)}" y2="${y+4}" stroke="${col}" opacity=".55"/>`;
+    t+=`<rect x="${X(b)}" y="${y-8}" width="${Math.max(1,X(c)-X(b))}" height="16" fill="${col}" opacity=".3" rx="2"/>`;
+    t+=`<line x1="${X(m)}" y1="${y-10}" x2="${X(m)}" y2="${y+10}" stroke="${col}" stroke-width="2.5"/>`;
+    return {svg:t, med:m};
+  };
+  PROFILS_MC.forEach((p,i)=>{
+    const R2=MCstate.res[p.k], y0=TOP+i*BAND+16, y1=y0+24;
+    const s0=boite(R2.bill0,y0,'var(--accent)'), s1=boite(R2.bill1,y1,'#2e7d8a');
+    if(i) g+=`<line x1="0" y1="${TOP+i*BAND-6}" x2="${W}" y2="${TOP+i*BAND-6}" stroke="var(--line)"/>`;
+    g+=`<text x="0" y="${y0+16}" font-size="12" fill="var(--text-primary)" font-weight="500">${p.n}</text>`;
+    // flèche reliant les deux médianes : l'économie apportée par la batterie
+    g+=`<line x1="${X(s1.med)}" y1="${(y0+y1)/2}" x2="${X(s0.med)}" y2="${(y0+y1)/2}"
+         stroke="#2e7d8a" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/>`;
+    g+=`<text x="${(X(s0.med)+X(s1.med))/2}" y="${(y0+y1)/2-4}" font-size="10" fill="#2e7d8a"
+         text-anchor="middle">−${fmt(s0.med-s1.med)} €</text>`;
+    g+=s0.svg+s1.svg;
+    g+=`<text x="${W-R+6}" y="${y0+4}" font-size="11" fill="var(--muted)">${fmt(s0.med)} €</text>`;
+    g+=`<text x="${W-R+6}" y="${y1+4}" font-size="11" fill="#2e7d8a">${fmt(s1.med)} €</text>`;
+  });
+  const yb=TOP+PROFILS_MC.length*BAND+4;
+  g+=`<line x1="${L}" y1="${yb}" x2="${W-R}" y2="${yb}" stroke="var(--line)"/>`;
+  [0,.25,.5,.75,1].forEach(f=>{const v=mn-pad+((mx-mn)+2*pad)*f;
+    g+=`<line x1="${X(v)}" y1="${yb}" x2="${X(v)}" y2="${yb+4}" stroke="var(--line)"/>
+        <text x="${X(v)}" y="${yb+17}" font-size="10" fill="var(--muted)" text-anchor="middle">${fmt(v)} €</text>`;});
+  $('mcBox').innerHTML=g+'</svg>';
+
+  // conclusion
+  const mR=moy(MCstate.res.rigoureux.bill0), mI=moy(MCstate.res.insouciant.bill0);
+  const ecart=mI-mR;
+  const disp=q(MCstate.res.normal.bill0,.9)-q(MCstate.res.normal.bill0,.1);
+  const gR=moy(MCstate.res.rigoureux.gain), gI=moy(MCstate.res.insouciant.gain);
+  let verdict;
+  if(ecart<25) verdict=`<b style="color:var(--accent)">Vos habitudes ne changent presque rien.</b>
+    Entre une discipline stricte et une insouciance totale, l'écart n'est que de
+    <b>${fmt(ecart)} € par an</b> — moins que la variabilité d'une année à l'autre
+    (${fmt(disp)} € entre une bonne et une mauvaise année). Vous pouvez vivre normalement.`;
+  else if(ecart<70) verdict=`<b style="color:var(--warn)">Vos habitudes comptent modérément.</b>
+    Passer d'une discipline stricte à l'insouciance coûte <b>${fmt(ecart)} € par an</b>.
+    C'est réel mais du même ordre que l'aléa météo (${fmt(disp)} € d'écart entre une bonne et une
+    mauvaise année) : cela ne mérite pas d'y penser chaque jour, seulement de garder le réflexe
+    de programmer les gros appareils en journée.`;
+  else verdict=`<b style="color:var(--bad)">Vos habitudes pèsent lourd.</b> L'écart atteint
+    <b>${fmt(ecart)} € par an</b> entre discipline et insouciance, nettement plus que l'aléa
+    météo (${fmt(disp)} €). Ici, programmer les appareils vaut vraiment la peine.`;
+  $('mcConc').innerHTML=`<p>${verdict}</p>
+    <p class="hint">Le gain apporté par la batterie de ${fmt(nom,1)} kWh nominaux
+    (${fmt(capU,2)} kWh utiles) passe de <b>${fmt(gR)} €/an</b> si vous êtes rigoureux à
+    <b>${fmt(gI)} €/an</b> si vous ne l'êtes pas — la batterie
+    ${gI>gR?'<b>rattrape</b> une partie de vos écarts, elle est donc plus utile à qui manque de régularité'
+           :'perd de son intérêt quand la consommation est déjà bien placée'}.
+    Chaque tirage simule une année entière : météo, jours de canicule, absences, heures de départ
+    et fréquences des cycles sont retirés au hasard à chaque fois.</p>`;
+}
+
+/* ---------- ouverture de l'onglet d'étude ---------- */
+function snapshotParams(){
+  const inp={},chk={};
+  document.querySelectorAll('#params input, #params select').forEach(e=>{
+    if(!e.id) return;
+    if(e.type==='checkbox') chk[e.id]=e.checked; else inp[e.id]=e.value;
+  });
+  const net=o=>{const c={};for(const k in o) if(k[0]!=='_') c[k]=o[k]; return c;};
+  return {inp,chk,DT:DT.map(net),APPL:APPL.map(net),BATT:BATT.map(net)};
+}
+const MC_LAB={
+ nPan:['Nombre de panneaux',''], wPan:['Puissance par panneau','Wc'],
+ yieldKwc:['Rendement retenu','kWh/kWc'], invKw:['Onduleur AC','kW'],
+ refSud:['Référence plein sud','kWh/kWc'], tilt:['Inclinaison','°'],
+ azA:['Pan A — azimut','°'], azB:['Pan B — azimut','°'], shA:['Part du pan A','%'],
+ pvA:['Rendement mesuré pan A','kWh/kWc'], pvB:['Rendement mesuré pan B','kWh/kWc'],
+ spell:['Durée moyenne d\'une période couverte','jours'],
+ baseKwh:['Consommation diffuse','kWh/an'], baseDay:['Part diurne de la diffuse','%'],
+ ixEte:['Indice de consommation — été',''], ixInter:['Indice — intermédiaire',''],
+ ixHiver:['Indice — hiver',''],
+ evKwh:['Véhicule — consommation','kWh/an'], evKw:['Véhicule — borne','kW'],
+ evDay:['Véhicule — part rechargée en journée','%'],
+ battDod:['Profondeur de décharge','%'], battEta:['Rendement aller-retour',''],
+ battDegr:['Perte de capacité','%/an'], battKw:['Puissance de charge max','kW'],
+ battIdle:['Veille du système de stockage','W'],
+ pElec:['Prix marginal évité','€/kWh'], pInj:['Tarif d\'injection','€/kWh'],
+ infl:['Indexation de l\'électricité','%/an'], disc:['Taux d\'actualisation','%/an'],
+ cvRate:['Certificats verts','CV/MWh'], cvPrice:['Prix du certificat','€'],
+ cvYears:['Durée des certificats','ans'],
+ capexPv:['Coût de l\'installation PV','€ TVAC'], degr:['Dégradation des panneaux','%/an'],
+ invYear:['Remplacement onduleur — année',''], invCost:['Coût du remplacement','€'],
+ batYear:['Remplacement batterie — année',''], batPct:['Part du prix initial','%'],
+ maint:['Entretien et assurance','€/an'], horizon:['Horizon d\'analyse','ans']
+};
+const MC_GRP=[
+ ['Production',['nPan','wPan','refSud','tilt','azA','azB','shA','pvA','pvB','yieldKwc','invKw']],
+ ['Consommation',['baseKwh','baseDay','ixEte','ixInter','ixHiver']],
+ ['Véhicule électrique',['evKwh','evKw','evDay']],
+ ['Batterie',['battDod','battEta','battDegr','battKw','battIdle']],
+ ['Prix et incitants',['pElec','pInj','infl','disc','cvRate','cvPrice','cvYears']],
+ ['Investissement',['capexPv','degr','invYear','invCost','batYear','batPct','maint','horizon']],
+ ['Météo',['spell']]
+];
+function resumeParams(cfg,snap){
+  const K=(a,b)=>`<div><span>${a}</span><b>${b}</b></div>`;
+  let h=`<div class="kpi" style="grid-template-columns:repeat(4,1fr)">
+    ${K('Puissance',fmt(cfg.kwc,2)+' kWc')}
+    ${K('Production',fmt(cfg.prodY1)+' kWh/an')}
+    ${K('Consommation',fmt(refConso(cfg))+' kWh/an')}
+    ${K('Rendement',fmt(cfg.yieldKwc,0)+(cfg.mesure?' mesuré':' estimé'))}</div>`;
+  const evOn=snap.chk.evOn;
+  for(const [titre,ids] of MC_GRP){
+    const lignes=ids.filter(id=>{
+      if(!(id in snap.inp)) return false;
+      const v=String(snap.inp[id]).trim();
+      if(v==='') return false;
+      if(titre==='Véhicule électrique' && !evOn) return false;
+      return true;
+    }).map(id=>{
+      const [lab,u]=MC_LAB[id]||[id,''];
+      return `<tr><td>${lab}</td><td class="num">${snap.inp[id]} ${u}</td></tr>`;
+    }).join('');
+    if(!lignes) continue;
+    h+=`<h3 style="font-size:13px;font-weight:600;margin:14px 0 4px">${titre}
+      ${titre==='Véhicule électrique'?'':''}</h3><table><tbody>${lignes}</tbody></table>`;
+  }
+  if(!evOn) h+=`<p class="hint">Véhicule électrique : désactivé.</p>`;
+  h+=`<h3 style="font-size:13px;font-weight:600;margin:14px 0 4px">Types de journée</h3>
+    <table><thead><tr><th></th><th>Jours</th><th>% prod.</th><th>Jour type</th>
+    <th>% couverts</th><th>Prod. couverte</th></tr></thead><tbody>`
+    +snap.DT.map(d=>`<tr><td>${d.n}</td><td class="num">${d.days}</td><td class="num">${d.share} %</td>
+      <td class="num">${d.doy}</td><td class="num">${d.cloud} %</td>
+      <td class="num">${d.clow} %</td></tr>`).join('')+`</tbody></table>`;
+  h+=`<h3 style="font-size:13px;font-weight:600;margin:14px 0 4px">Options de batterie</h3>
+    <table><thead><tr><th>Capacité nominale</th><th>Prix TVAC</th><th>Capacité utile</th>
+    <th>€ / kWh nominal</th></tr></thead><tbody>`
+    +(snap.BATT||[]).map(b=>`<tr><td>${b.nom} kWh</td><td class="num">${fmt(b.prix)} €</td>
+      <td class="num">${fmt(b.nom*cfg.battDod/100,2)} kWh</td>
+      <td class="num">${b.nom>0?fmt(b.prix/b.nom):'—'} €</td></tr>`).join('')
+    +`</tbody></table>`;
+  h+=`<h3 style="font-size:13px;font-weight:600;margin:14px 0 4px">Appareils</h3>
+    <table><thead><tr><th>Appareil</th><th>W moyens</th><th>Durée</th><th>Départ</th>
+    <th>1 jour sur</th><th>Profil</th><th>Saisons</th></tr></thead><tbody>`
+    +snap.APPL.map(a=>{
+      const pr=(PROFILS[a.prof||'plat']||PROFILS.plat).n;
+      const sais=a.s.map(k=>({ete:'été',inter:'inter',hiver:'hiver'})[k]||k).join(', ');
+      return `<tr><td>${a.n}</td><td class="num">${a.w}</td><td class="num">${a.h} h</td>
+        <td class="num">${a.flex?'pic solaire '+(a.off>=0?'+':'')+(a.off||0)+' h':a.start+' h'}</td>
+        <td class="num">${a.freq}</td><td>${pr}</td><td>${sais}</td></tr>`;
+    }).join('')+`</tbody></table>`;
+  return h;
+}
+function openMC(){
+  const cfg=readCfg();
+  const snap=snapshotParams();
+  const style=[...document.querySelectorAll('style')].map(e=>e.textContent).join('\n');
+  const engine=[...document.querySelectorAll('script:not([src])')].map(e=>e.textContent).join('\n')
+    .replace(/<\/script/gi,'<\\/script');
+  const ids=Object.keys(snap.inp).map(id=>`<input id="${id}" value="${String(snap.inp[id]).replace(/"/g,'&quot;')}">`).join('')
+    +Object.keys(snap.chk).map(id=>`<input type="checkbox" id="${id}" ${snap.chk[id]?'checked':''}>`).join('')
+    +['prodHint','dtBody','applList','consHint','battHint','evBox','evDayLbl','baseDayLbl','kpi','cmp',
+      'marg','dayTabs','chart','dayStats','dayKpi','cfSel','cf','recalc','out']
+      .map(id=>`<div id="${id}"></div>`).join('');
+  const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+<title>Étude de robustesse — simulateur PV</title><style>${style}
+.mcbar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:10px 0}
+.mcbar div{height:100%;background:var(--accent);width:0%;transition:width .2s}
+.kpi div b{font-size:16px}
+</style></head><body>
+<header><h1>Étude de robustesse</h1>
+<p>Des centaines d'années simulées, chacune avec ses aléas — pour savoir si vos habitudes changent le résultat</p></header>
+<div style="padding:20px;max-width:1100px">
+  <div class="card"><h2>Paramètres utilisés (lecture seule)</h2>
+    ${resumeParams(cfg,snap)}
+    <p class="hint">Cet onglet est figé sur l'état du simulateur au moment où vous l'avez ouvert.
+    Pour changer un paramètre, modifiez-le dans l'onglet principal et rouvrez cette étude.</p>
+  </div>
+  <div class="card"><h2>Réglages de l'étude</h2>
+    <div class="row3">
+      <div><label>Nombre de tirages</label><input id="mcN" type="number" value="600" step="50"></div>
+      <div><label>Jours simulés par saison et par tirage</label><input id="mcS" type="number" value="40" step="10"></div>
+      <div><label>Capacité testée (kWh nominaux)</label><input id="mcCap" type="number" value="5.8" step="0.1"></div>
+    </div>
+    <div class="row3">
+      <div><label>Jours d'absence par an</label><input id="mcAway" type="number" value="14" step="1"></div>
+      <div><label>Jours de canicule par été</label><input id="mcHeat" type="number" value="10" step="1"></div>
+      <div><label>Clim ×N pendant une canicule</label><input id="mcHeatMul" type="number" value="2.5" step="0.1"></div>
+    </div>
+    <button id="mcGo" style="margin-top:12px;font-weight:500">lancer l'étude</button>
+    <div class="mcbar"><div id="mcProg"></div></div>
+    <p class="hint" id="mcStat">prêt</p>
+  </div>
+  <div class="card"><h2>Résultats</h2><div id="mcTab"></div>
+    <div id="mcBox" style="margin-top:16px"></div>
+    <p class="hint">Chaque profil montre deux distributions sur la même échelle : la facture
+    sans batterie en vert, avec batterie en bleu-vert. La boîte couvre la moitié centrale des
+    années simulées, le trait vertical marque la médiane, les moustaches les 5e et 95e centiles.
+    Le trait pointillé entre les deux médianes chiffre l'économie apportée par le stockage.</p>
+  </div>
+  <div class="card"><h2>Ce qu'il faut en retenir</h2><div id="mcConc"></div></div>
+</div>
+<div id="params" style="display:none">${ids}</div>
+<script>${engine}<\/script>
+<script>
+DT=${JSON.stringify(snap.DT)}; APPL=${JSON.stringify(snap.APPL)};
+document.getElementById('mcGo').onclick=mcStart;
+<\/script></body></html>`;
+  const w=window.open('','_blank');
+  if(!w){ alert("Le navigateur a bloqué l'ouverture d'un onglet. Autorisez les fenêtres surgissantes."); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+
+/* ---------- scénarios : stockage local, presets, import/export ---------- */
+const LSKEY='simu-pv-v1';
+const PRESET_JIM={BATT:[{nom:5.8,prix:1966},{nom:11.5,prix:3898},{nom:16.07,prix:3384}], inp:{"nPan": "14", "wPan": "450", "yieldKwc": "870", "invKw": "5", "refSud": "1050", "tilt": "35", "azA": "-90", "azB": "90", "shA": "50", "pvA": "850.4", "pvB": "834.06", "spell": "2.5", "baseKwh": "1000", "baseDay": "28", "ixEte": "0.92", "ixInter": "1.00", "ixHiver": "1.14", "evKwh": "1800", "evKw": "7.4", "evDay": "50", "battDod": "90", "battEta": "0.90", "battDegr": "1.5", "battKw": "5", "battIdle": "25", "pElec": "0.3818", "pInj": "0.040", "infl": "3", "disc": "3", "cvRate": "1.739", "cvPrice": "72", "cvYears": "10", "capexPv": "5102", "degr": "0.4", "invYear": "14", "invCost": "1500", "batYear": "15", "batPct": "50", "maint": "35", "horizon": "25", "debounce": "4"}, chk:{"evOn": false}, DT:[
+ {k:'ete',   n:'Été',           days:123, share:58, doy:180, cloud:40, clow:35},
+ {k:'inter', n:'Intermédiaire', days:122, share:34, doy:81, cloud:50, clow:25},
+ {k:'hiver', n:'Hiver',         days:120, share:10, doy:340, cloud:70, clow:40}
+], APPL:[
+ {n:'Soirée (TV, etc.)',w:180,  h:4,   start:19,   freq:1, s:['ete','inter','hiver'], flex:false},
+ {n:'Cuisine / repas',  w:800,  h:1.5, start:18.5, freq:1, s:['ete','inter','hiver'], flex:false, prof:'four'},
+ {n:'Éclairage soirée', w:150,  h:5,   start:17.5, freq:1, s:['inter','hiver'],       flex:false},
+ {n:'Lave-vaisselle',   w:850,  h:2,   start:12,   freq:2, s:['ete','inter','hiver'], flex:true, off:0,   prof:'lave-vaisselle'},
+ {n:'Sèche-linge',      w:1700, h:1.5, start:12,   freq:3, s:['ete','inter','hiver'], flex:true, off:3,   prof:'seche-linge'},
+ {n:'Lave-linge',       w:600,  h:2,   start:12,   freq:3, s:['ete','inter','hiver'], flex:true, off:1.5, prof:'lave-linge'},
+ {n:'Clim — nuit',      w:420,  h:9,   start:22,   freq:1, s:['ete'],                 flex:false},
+ {n:'Clim — journée',   w:210,  h:4,   start:14,   freq:1, s:['ete'],                 flex:false}
+]};
+const DEFAUT_GENERIQUE={
+ BATT:[{nom:5.8,prix:2000},{nom:11.5,prix:3800},{nom:16,prix:4800}],
+ inp:{nPan:'14',wPan:'450',refSud:'1000',tilt:'35',azA:'-90',azB:'90',shA:'50',
+      pvA:'',pvB:'',yieldKwc:'830',invKw:'5',spell:'2.5',
+      baseKwh:'1400',baseDay:'28',ixEte:'0.92',ixInter:'1.00',ixHiver:'1.14',
+      evKwh:'2500',evKw:'7.4',evDay:'50',
+      battDod:'90',battEta:'0.90',
+      battDegr:'1.5',battKw:'5',battIdle:'25',
+      pElec:'0.3800',pInj:'0.040',infl:'3',disc:'3',cvRate:'1.739',cvPrice:'72',cvYears:'10',
+      capexPv:'6000',degr:'0.4',invYear:'14',invCost:'1500',batYear:'15',batPct:'50',maint:'35',horizon:'25',
+      debounce:'2'},
+ chk:{evOn:false},
+ DT:[{k:'ete',n:'Été',days:123,share:58,doy:180,cloud:40,clow:35},
+     {k:'inter',n:'Intermédiaire',days:122,share:32,doy:81,cloud:46,clow:35},
+     {k:'hiver',n:'Hiver',days:120,share:10,doy:340,cloud:70,clow:40}],
+ APPL:[{n:'Soirée (TV, etc.)',w:180,h:4,start:19,freq:1,s:['ete','inter','hiver'],flex:false,prof:'plat'},
+       {n:'Cuisine / repas',w:800,h:1.5,start:18.5,freq:1,s:['ete','inter','hiver'],flex:false,prof:'four'},
+       {n:'Éclairage soirée',w:150,h:5,start:17.5,freq:1,s:['inter','hiver'],flex:false,prof:'plat'},
+       {n:'Lave-vaisselle',w:850,h:2,start:12,freq:2,s:['ete','inter','hiver'],flex:true,off:0,prof:'lave-vaisselle'},
+       {n:'Sèche-linge',w:1700,h:1.5,start:12,freq:3,s:['ete','inter','hiver'],flex:true,off:3,prof:'seche-linge'},
+       {n:'Lave-linge',w:600,h:2,start:12,freq:3,s:['ete','inter','hiver'],flex:true,off:1.5,prof:'lave-linge'}]
+};
+const PRESETS={'Ménage belge type (par défaut)':DEFAUT_GENERIQUE,
+               'Exemple documenté — Woluwe-Saint-Lambert':PRESET_JIM};
+
+function lsGet(){ try{return JSON.parse(localStorage.getItem(LSKEY))||{}}catch(e){return {}} }
+function lsSet(o){ try{localStorage.setItem(LSKEY,JSON.stringify(o));return true}catch(e){return false} }
+function appliquer(st){
+  if(!st) return;
+  for(const id in (st.inp||{})) if($(id)) $(id).value=st.inp[id];
+  for(const id in (st.chk||{})) if($(id)) $(id).checked=!!st.chk[id];
+  if(st.DT)   DT=JSON.parse(JSON.stringify(st.DT));
+  if(st.APPL) APPL=JSON.parse(JSON.stringify(st.APPL));
+  if(st.BATT) BATT=JSON.parse(JSON.stringify(st.BATT));
+  if($('evBox')) $('evBox').style.display=$('evOn').checked?'block':'none';
+  if($('baseDayLbl')) $('baseDayLbl').textContent=$('baseDay').value+' %';
+  if($('evDayLbl'))   $('evDayLbl').textContent=$('evDay').value+' %';
+  renderDT(); renderAppl(); renderBatt(); runNow();
+}
+function sauverCourant(){ const d=lsGet(); d.courant=snapshotParams(); lsSet(d); }
+function majListeScen(){
+  const d=lsGet(), sel=$('scen'); if(!sel) return;
+  const perso=Object.keys(d.scenarios||{});
+  sel.innerHTML='<option value="">— scénario —</option>'
+    +Object.keys(PRESETS).map(n=>`<option value="p:${n}">${n}</option>`).join('')
+    +(perso.length?'<optgroup label="Vos scénarios">'
+      +perso.map(n=>`<option value="s:${n}">${n}</option>`).join('')+'</optgroup>':'');
+}
+function chargerScen(){
+  const v=$('scen').value; if(!v) return;
+  const d=lsGet();
+  const st = v.startsWith('p:') ? PRESETS[v.slice(2)] : (d.scenarios||{})[v.slice(2)];
+  if(st) appliquer(JSON.parse(JSON.stringify(st)));
+  $('scen').value='';
+}
+function enregistrerScen(){
+  const n=prompt('Nom du scénario :',''); if(!n) return;
+  const d=lsGet(); d.scenarios=d.scenarios||{}; d.scenarios[n]=snapshotParams();
+  if(lsSet(d)) majListeScen(); else alert("Le stockage local est indisponible dans ce navigateur.");
+}
+function supprimerScen(){
+  const d=lsGet(), noms=Object.keys(d.scenarios||{});
+  if(!noms.length){ alert('Aucun scénario enregistré.'); return; }
+  const n=prompt('Nom du scénario à supprimer :\n'+noms.join('\n'),noms[0]);
+  if(!n||!d.scenarios[n]) return;
+  delete d.scenarios[n]; lsSet(d); majListeScen();
+}
+function reinit(){
+  if(!confirm('Revenir aux valeurs par défaut ? Vos scénarios enregistrés sont conservés.')) return;
+  appliquer(JSON.parse(JSON.stringify(DEFAUT_GENERIQUE)));
+}
+function exporterScen(){
+  const b=new Blob([JSON.stringify(snapshotParams(),null,1)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b); a.download='scenario-pv.json'; a.click();
+}
+function importerScen(e){
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ try{ appliquer(JSON.parse(r.result)); }catch(err){ alert('Fichier illisible.'); } };
+  r.readAsText(f); e.target.value='';
+}
+function bootScen(){
+  renderBatt();
+  majListeScen();
+  const d=lsGet();
+  appliquer(d.courant ? d.courant : JSON.parse(JSON.stringify(DEFAUT_GENERIQUE)));
+  if(!d.courant && !lsSet({...d,courant:snapshotParams()}))
+    $('scenNote').textContent="Stockage local indisponible : vos réglages ne seront pas mémorisés.";
+}
+
+/* ---------- pilotage ---------- */
+let RESULTS=[], curTab=0;
+function readCfg(){
+  const c={};
+  ['baseKwh','baseDay','ixEte','ixInter','ixHiver','invKw','battEta','battKw','battIdle','pElec','pInj','infl','disc',
+   'cvRate','cvPrice','cvYears','capexPv','degr','invYear','invCost','batYear','batPct',
+   'maint','horizon','evKwh','evKw','evDay','nPan','wPan','yieldKwc','spell','tilt','azA','azB','shA','battDod','battDegr','refSud'].forEach(k=>c[k]=+$(k).value);
+  c.evOn=$('evOn').checked;
+  c.pvA=+($('pvA').value||0); c.pvB=+($('pvB').value||0);
+  c.mesure = c.pvA>0 && c.pvB>0;
+  if(c.mesure) c.yieldKwc = c.shA/100*c.pvA + (1-c.shA/100)*c.pvB;
+  c.kwc=c.nPan*c.wPan/1000;
+  c.prodY1=c.kwc*c.yieldKwc;
+  return c;
+}
+function prepDT(cfg){
+  const shareSum=DT.reduce((s,d)=>s+d.share,0)||1;
+  const ixW=DT.reduce((a,d)=>a+d.days*({ete:cfg.ixEte,inter:cfg.ixInter,hiver:cfg.ixHiver}[d.k]||1),0);
+  DT.forEach(d=>{
+    const ix={ete:cfg.ixEte,inter:cfg.ixInter,hiver:cfg.ixHiver}[d.k]||1;
+    d._base=diffuseCurve(cfg.baseKwh*ix/ixW,cfg.baseDay/100);
+    d._prodTotal=cfg.prodY1*(d.share/shareSum)/Math.max(1,d.days);
+    const f=Math.min(.95,Math.max(0,d.cloud/100)), lo=Math.max(0,d.clow/100);
+    d._lowTotal=d._prodTotal*lo;
+    d._highTotal=f<1?(d._prodTotal-f*d._lowTotal)/(1-f):d._prodTotal;
+    d._prodBase=pvCurve(d._prodTotal,d.doy,cfg.tilt,cfg.azA,cfg.azB,cfg.shA);
+    d._prodHigh=pvCurve(d._highTotal,d.doy,cfg.tilt,cfg.azA,cfg.azB,cfg.shA);
+    d._prodLow =pvCurve(d._lowTotal ,d.doy,cfg.tilt,cfg.azA,cfg.azB,cfg.shA);
+    d._ix=ix;
+  });
+}
+function run(){
+  const cfg=readCfg();
+  prepDT(cfg);
+  const iOri=yieldIndex(cfg.tilt,cfg.azA,cfg.azB,cfg.shA), iSud=yieldIndex(cfg.tilt,0,0,100);
+  const ratio=iOri/iSud, sugg=Math.round(cfg.refSud*ratio/5)*5;
+  if(cfg.mesure){
+    $('yieldKwc').value=fmt(cfg.yieldKwc,0);
+    $('prodHint').innerHTML=`${fmt(cfg.kwc,2)} kWc — production
+      <b style="color:var(--accent)">${fmt(cfg.prodY1)} kWh/an</b><br>
+      <span style="color:var(--accent)">◆ Rendement mesuré</span> : ${fmt(cfg.shA,0)} % à
+      ${fmt(cfg.pvA,1)} et ${fmt(100-cfg.shA,0)} % à ${fmt(cfg.pvB,1)} kWh/kWc, soit
+      <b>${fmt(cfg.yieldKwc,0)} kWh/kWc</b>. Aucune estimation n'est utilisée.<br>
+      Pour information, le modèle géométrique aurait donné ${sugg} kWh/kWc
+      (${fmt(ratio*100,0)} % du plein sud), contre ${fmt(cfg.yieldKwc/cfg.refSud*100,0)} % mesurés.`;
+  } else {
+    const ok=Math.abs(cfg.yieldKwc-sugg)<=60;
+    $('prodHint').innerHTML=`${fmt(cfg.kwc,2)} kWc — production estimée <b>${fmt(cfg.prodY1)} kWh/an</b><br>
+      Cette orientation capte <b>${fmt(ratio*100,0)} %</b> de ce que recevrait la même toiture plein sud.
+      Avec une référence de ${fmt(cfg.refSud,0)} kWh/kWc, la vôtre vaut donc environ
+      <b>${sugg} kWh/kWc</b>${ok?'' : ` — <span style="color:var(--warn)">votre saisie de ${fmt(cfg.yieldKwc,0)} s'en écarte nettement</span>`}.`;
+  }
+
+  const dod=Math.max(10,Math.min(100,cfg.battDod))/100;
+  const opts=[{nom:0,prix:0}].concat(BATT.filter(b=>b.nom>0).sort((a,b)=>a.nom-b.nom));
+  const nomCaps=opts.map(o=>o.nom), prixOpt=opts.map(o=>o.prix), caps=nomCaps.map(n=>n*dod);
+  const ref=simYear({...cfg,invKw:0,evOn:cfg.evOn},0);
+  // référence sans PV : toute la consommation est achetée
+  const refCost=refConso(cfg)*cfg.pElec;
+
+  const raw=caps.map((cap,i)=>{
+    const t=simYear(cfg,cap);
+    const cost=t.imp*cfg.pElec - t.exp*cfg.pInj;
+    return {cap,nom:nomCaps[i],t,cost,gain:refCost-cost,
+            prix:prixOpt[i], capex:cfg.capexPv+prixOpt[i],
+            auto:(t.prod-t.exp-t.clip-(t.ch-t.dis))/t.prod};
+  });
+  // courbe gain(capacité) : sert à répercuter le vieillissement de la batterie
+  const pts=raw.map(r=>[r.cap,r.gain]).sort((a,b)=>a[0]-b[0]);
+  const gainAt=c=>{
+    if(c<=pts[0][0]) return pts[0][1];
+    for(let i=1;i<pts.length;i++) if(c<=pts[i][0]){
+      const [x0,y0]=pts[i-1],[x1,y1]=pts[i];
+      return y0+(y1-y0)*(c-x0)/(x1-x0);
+    }
+    return pts[pts.length-1][1];
+  };
+  RESULTS=raw.map(r=>({...r,e:economics(r.gain,r.capex,cfg,r.cap,gainAt,r.prix)}));
+  $('battHint').innerHTML=opts.filter(o=>o.nom>0).map(o=>
+    `${fmt(o.nom,1)} kWh → <b>${fmt(o.nom*dod,2)} utiles</b> pour ${fmt(o.prix)} €`).join(' &nbsp;·&nbsp; ');
+  $('consHint').textContent=`Consommation annuelle simulée : ${fmt(refConso(cfg))} kWh`;
+  drawCmp(cfg,refCost); drawTabs(); drawChart(); drawCF(cfg);
+}
+function refConso(cfg){
+  let s=0;
+  for(const dt of DT){
+    const cyc=Math.min(12,APPL.filter(a=>a.s.includes(dt.k)).reduce((m,a)=>lcm(m,Math.max(1,a.freq)),1));
+    let acc=0;
+    for(let d=0;d<cyc;d++) acc+=dayLoad(dt,d,dt._base,0).reduce((x,y)=>x+y,0);
+    s+=acc/cyc*dt.days;
+  }
+  if(cfg.evOn) s+=cfg.evKwh;
+  return s;
+}
+
+function drawCmp(cfg,refCost){
+  const best=Math.max(...RESULTS.map(r=>r.e.npv));
+  let h=`<table><thead><tr><th>Batterie</th><th>Surcoût</th><th>Investis.</th>
+    <th>Autoconso.</th><th>Facture/an</th><th>Gain/an</th><th>Retour</th><th>TRI sur ${fmt(cfg.horizon,0)} ans</th>
+    <th>VAN à ${fmt(cfg.disc,0)} % sur ${fmt(cfg.horizon,0)} ans</th></tr></thead><tbody>`;
+  const c0=RESULTS[0];
+  for(const r of RESULTS){
+    const sur=r.capex-c0.capex;
+    h+=`<tr class="${r.e.npv===best?'best':''}">
+      <td>${r.cap?fmt(r.cap,1)+' kWh':'aucune'}</td>
+      <td class="num">${sur?'+'+fmt(sur)+' €':'—'}</td>
+      <td class="num">${fmt(r.capex)} €</td>
+      <td class="num">${fmt(r.auto*100,1)} %</td>
+      <td class="num">${fmt(r.cost)} €</td>
+      <td class="num">${fmt(r.gain)} €</td>
+      <td class="num">${r.e.pb?fmt(r.e.pb,1)+' a':'jamais'}</td>
+      <td class="num ${r.e.irr>0?'pos':'neg'}">${fmt(r.e.irr*100,1)} %</td>
+      <td class="num ${r.e.npv>0?'pos':'neg'}">${fmt(r.e.npv)} €</td></tr>`;
+  }
+  h+='</tbody></table>';
+  $('cmp').innerHTML=h;
+  drawMarg(cfg);
+  const b=RESULTS.find(r=>r.e.npv===best);
+  $('kpi').innerHTML=`
+    <div><span>Production</span><b>${fmt(RESULTS[0].t.prod)}</b>kWh/an</div>
+    <div><span>Sans PV</span><b>${fmt(refCost)}</b>€/an</div>
+    <div><span>Meilleure option</span><b>${b.cap?fmt(b.cap,0)+' kWh':'sans batt.'}</b>VAN ${fmt(b.e.npv)} €</div>
+    <div><span>Écrêtage onduleur</span><b>${fmt(RESULTS[0].t.clip)}</b>kWh/an</div>`;
+}
+
+function copyQ(){
+  const rows=[...document.querySelectorAll('#qtab tr')].map(tr=>
+    [...tr.children].map(td=>td.textContent.trim()).join('\t')).join('\n');
+  navigator.clipboard.writeText(rows).then(()=>{
+    const b=event.target; const t=b.textContent; b.textContent='copié';
+    setTimeout(()=>b.textContent=t,1200);
+  });
+}
+function drawMarg(cfg){
+  let h=`<table><thead><tr><th>Décision</th><th>Surcoût</th><th>Gain an. 1</th>
+    <th>Retour</th><th>TRI sur ${fmt(cfg.horizon,0)} ans</th>
+    <th>VAN à ${fmt(cfg.disc,0)} % sur ${fmt(cfg.horizon,0)} ans</th><th>Verdict</th></tr></thead><tbody>`;
+  const steps=[];
+  steps.push({lab:'Installer le photovoltaïque', from:null, to:RESULTS[0]});
+  for(let i=1;i<RESULTS.length;i++)
+    steps.push({lab:`Passer de ${RESULTS[i-1].cap?fmt(RESULTS[i-1].cap,0)+' à ':'0 à '}${fmt(RESULTS[i].cap,0)} kWh`,
+                from:RESULTS[i-1], to:RESULTS[i]});
+  for(const st of steps){
+    const dcap=st.to.capex-(st.from?st.from.capex:0);
+    const nets=st.to.e.rows.map((r,y)=>r.net-(st.from?st.from.e.rows[y].net:0));
+    let cum=-dcap,pb=null,npv=-dcap;
+    nets.forEach((n,j)=>{const pv0=cum;cum+=n;npv+=n/Math.pow(1+cfg.disc/100,j+1);
+      if(pb===null&&cum>=0)pb=j+(-pv0)/n;});
+    let lo=-0.95,hi=2;
+    for(let i=0;i<200;i++){const m=(lo+hi)/2;let v=-dcap;
+      nets.forEach((n,j)=>v+=n/Math.pow(1+m,j+1)); if(v>0)lo=m;else hi=m;}
+    const irr=(lo+hi)/2;
+    const bad=npv<0, mid=!bad&&irr<0.08;
+    const verdict=bad?'à éviter':mid?'marginal':'à faire';
+    h+=`<tr><td>${st.lab}</td><td class="num">${fmt(dcap)} €</td>
+      <td class="num">${fmt(nets[0])} €</td>
+      <td class="num">${pb?fmt(pb,1)+' a':'jamais'}</td>
+      <td class="num ${irr>0.08?'pos':irr>0?'':'neg'}">${irr<-0.5?'—':fmt(irr*100,1)+' %'}</td>
+      <td class="num ${npv>0?'pos':'neg'}">${fmt(npv)} €</td>
+      <td style="text-align:right;color:${bad?'var(--bad)':mid?'var(--warn)':'var(--accent)'}">${verdict}</td></tr>`;
+  }
+  $('marg').innerHTML=h+'</tbody></table>';
+}
+function drawTabs(){
+  $('dayTabs').innerHTML=DT.map((d,i)=>
+    `<button class="${i===curTab?'on':''}" onclick="curTab=${i};drawTabs();drawChart()">${d.n}</button>`).join('')
+    +` <select id="chCap" onchange="drawChart()" style="max-width:150px">`
+    +RESULTS.map((r,i)=>`<option value="${i}">${r.cap?fmt(r.cap,0)+' kWh':'sans batterie'}</option>`).join('')+`</select>`
+    +` <select id="chWx" onchange="drawChart()" style="max-width:140px">
+       <option value="moy">journée moyenne</option>
+       <option value="clair">journée claire</option>
+       <option value="couv">journée couverte</option></select>`
+    +` <label style="display:inline;margin-left:8px"><input type="checkbox" id="chDec"
+        onchange="drawChart()"> décomposer la consommation</label>`;
+}
+function drawChart(){
+  const dt=DT[curTab]; const idx=+($('chCap')?.value||0); const r=RESULTS[idx]; if(!r) return;
+  const cfg=readCfg();
+  const wx=$('chWx')?$('chWx').value:'moy';
+  const cyc=Math.min(12,APPL.filter(a=>a.s.includes(dt.k)).reduce((m,a)=>lcm(m,Math.max(1,a.freq)),1));
+  const peakQ=argmax(dt._prodBase);
+  const S=Math.min(120,Math.max(60,cyc*8));
+  const seq=weatherSeq(S,dt.cloud/100,cfg.spell,7919+dt.k.length*131);
+  const cur=seqCurves(dt,seq);
+  // on rejoue la séquence complète pour arriver sur un état de charge réaliste
+  let soc=0;
+  dt._parts=dt._parts||[];
+  for(let pass=0;pass<2;pass++)
+    for(let d=0;d<S;d++){
+      dt._load=dayLoad(dt,d%cyc,dt._base,peakQ,dt._parts);
+      dt._prod=seq[d]?cur.lo:cur.hi;
+      soc=simDay(dt,null,cfg,r.cap,soc).soc;
+    }
+  // puis on simule la journée demandée
+  dt._prod = wx==='clair'?cur.hi : wx==='couv'?cur.lo : dt._prodBase;
+  dt._load = dayLoad(dt,0,dt._base,peakQ,dt._parts);
+  const s=simDay(dt,null,cfg,r.cap,soc);
+
+  const W=680,H=300,pad={l:38,r:34,t:12,b:100};
+  const zero=H-pad.b, bandT=zero+22, bandMid=bandT+30, bandH=26;
+  const prod=dt._prod, load=dt._load;
+  const mx=Math.max(...prod,...load,0.01)*4;
+  const X=q=>pad.l+(W-pad.l-pad.r)*q/(Q-1), Y=v=>zero-(zero-pad.t)*(v/mx);
+  const path=a=>a.map((v,q)=>`${q?'L':'M'}${X(q).toFixed(1)},${Y(v*4).toFixed(1)}`).join('');
+  const socMax=r.cap||1, Ys=v=>zero-(zero-pad.t)*(v/socMax);
+  let g=`<svg viewBox="0 0 ${W} ${H}" role="img"><title>Journée type ${dt.n}</title>`;
+  for(let h=0;h<=24;h+=3){const x=X(h*4);
+    g+=`<line x1="${x}" y1="${pad.t}" x2="${x}" y2="${zero}" stroke="var(--line)"/>
+        <text x="${x}" y="${H-8}" font-size="10" fill="var(--muted)" text-anchor="middle">${h}h</text>`;}
+  if(r.cap>0){
+    for(let k=0;k<=2;k++){const v=socMax*k/2,y=Ys(v);
+      g+=`<line x1="${W-pad.r}" y1="${y}" x2="${W-pad.r+4}" y2="${y}" stroke="var(--line)"/>
+          <text x="${W-pad.r+7}" y="${y+3.5}" font-size="10" fill="var(--muted)">${fmt(v,0)}</text>`;}
+    g+=`<line x1="${W-pad.r}" y1="${pad.t}" x2="${W-pad.r}" y2="${zero}" stroke="var(--line)"/>`;
+  }
+  for(let q=0;q<Q;q++){
+    if(s.chS[q]>0) g+=`<rect x="${X(q)-2}" y="${Y(s.chS[q]*4)}" width="4" height="${zero-Y(s.chS[q]*4)}" fill="var(--batt)" opacity=".3"/>`;
+    if(s.disS[q]>0) g+=`<rect x="${X(q)-2}" y="${Y(s.disS[q]*4)}" width="4" height="${zero-Y(s.disS[q]*4)}" fill="#c9d4e3"/>`;
+  }
+  const dec=$('chDec')&&$('chDec').checked;
+  let legend='';
+  if(dec){
+    const comps=dt._parts.map(pt=>({n:pt.n,c:pt.c})).filter(x=>x.c.some(v=>v>1e-9));
+    if(s.evS.some(v=>v>1e-9)) comps.push({n:'Véhicule électrique',c:s.evS});
+    const cum=new Array(Q).fill(0);
+    comps.forEach((cp,i)=>{
+      const lo=cum.slice();
+      for(let q=0;q<Q;q++) cum[q]+=cp.c[q];
+      const up=cum.map((v,q)=>`${X(q).toFixed(1)},${Y(v*4).toFixed(1)}`).join(' L');
+      const dn=lo.map((v,q)=>`${X(q).toFixed(1)},${Y(v*4).toFixed(1)}`).reverse().join(' L');
+      g+=`<path d="M${up} L${dn} Z" fill="${PAL[i%PAL.length]}" opacity=".78"/>`;
+      legend+=`<span><i style="background:${PAL[i%PAL.length]}"></i>${cp.n} — ${fmt(cp.c.reduce((a,b)=>a+b,0),2)} kWh</span>`;
+    });
+  } else {
+    g+=`<path d="${path(load)}" fill="none" stroke="var(--cons)" stroke-width="2.2"/>`;
+  }
+  g+=`<path d="${path(prod)}" fill="none" stroke="var(--prod)" stroke-width="2.6"/>`;
+  if(r.cap>0)
+    g+=`<path d="${s.socS.map((v,q)=>`${q?'L':'M'}${X(q).toFixed(1)},${Ys(v).toFixed(1)}`).join('')}" fill="none" stroke="var(--batt)" stroke-width="1.8" stroke-dasharray="5 3" opacity=".85"/>`;
+  // ---- bande miroir : échanges avec le réseau
+  const gmax=Math.max(0.01,...s.gridS.map(v=>Math.abs(v)*4));
+  // v>0 = prélevé -> vers le bas ; v<0 = injecté -> vers le haut
+  const Yg=v=>bandMid+(v/gmax)*bandH;
+  g+=`<line x1="${pad.l}" y1="${bandMid}" x2="${W-pad.r}" y2="${bandMid}" stroke="var(--border-strong,#999)" stroke-width="1"/>`;
+  for(let q=0;q<Q;q++){
+    const v=s.gridS[q]*4; if(Math.abs(v)<1e-6) continue;
+    const y=Yg(v), h=Math.abs(y-bandMid);
+    g+=`<rect x="${X(q)-2}" y="${v>0?bandMid:y}" width="4" height="${h.toFixed(1)}"
+         fill="${v>0?'#b03a2e':'#2e7d8a'}" opacity=".7"/>`;
+  }
+  g+=`<text x="4" y="${pad.t+9}" font-size="10" fill="var(--muted)">kW</text>`;
+  g+=`<text x="${W-4}" y="${pad.t+9}" font-size="10" fill="var(--muted)" text-anchor="end">${r.cap?'kWh':''}</text>`;
+  g+=`<text x="${pad.l-4}" y="${bandMid-bandH+4}" font-size="9" fill="#2e7d8a" text-anchor="end">injecté</text>`;
+  g+=`<text x="${pad.l-4}" y="${bandMid+bandH+2}" font-size="9" fill="#b03a2e" text-anchor="end">prélevé</text>`;
+  g+=`<text x="${W-pad.r+7}" y="${bandMid+3.5}" font-size="9" fill="var(--muted)">±${fmt(gmax,1)} kW</text>`;
+  g+='</svg>';
+  $('chart').innerHTML=g;
+  // --- autoconsommation : le ratio n'a de sens que sur l'année
+  const pj=s.prodS.reduce((a,b)=>a+b,0), cj=s.loadS.reduce((a,b)=>a+b,0);
+  let direct=0; for(let q=0;q<Q;q++) direct+=Math.min(s.prodS[q],s.loadS[q]);
+  const acA=r.auto, indA=r.t.load>0?(r.t.load-r.t.imp)/r.t.load:0;
+  $('dayKpi').innerHTML=`
+    <div><span>Autoconsommation — année</span><b>${fmt(acA*100,1)} %</b>${r.cap?fmt(r.cap,0)+' kWh de batterie':'sans batterie'}</div>
+    <div><span>Indépendance — année</span><b>${fmt(indA*100,1)} %</b>${fmt(r.t.imp)} kWh achetés sur ${fmt(r.t.cons)}</div>
+    <div><span>Ce jour — production</span><b>${fmt(pj,1)} kWh</b>dont ${fmt(direct,1)} consommés directement${r.cap?', '+fmt(s.dis,1)+' via batterie':''}</div>
+    <div><span>Ce jour — réseau</span><b>${fmt(s.exp,1)} / ${fmt(s.imp,1)}</b>kWh injectés / prélevés</div>`;
+  if(dec) $('chart').insertAdjacentHTML('beforeend',`<div class="lg">${legend}</div>`);
+  const bp=r.t.byPart||{}, names=Object.keys(bp).filter(n=>bp[n].kwh>1);
+  const totK=names.reduce((a,n)=>a+bp[n].kwh,0);
+  let tb=`<table style="margin-top:12px"><thead><tr><th>Poste de consommation</th><th>kWh/an</th>
+    <th>Part</th><th>Couvert par le solaire</th><th>Acheté au réseau</th></tr></thead><tbody>`;
+  names.sort((a,b)=>bp[b].kwh-bp[a].kwh).forEach(n=>{
+    const o=bp[n], pct=o.kwh?o.sol/o.kwh:0;
+    tb+=`<tr><td>${n}</td><td class="num">${fmt(o.kwh)}</td>
+      <td class="num">${fmt(o.kwh/totK*100,1)} %</td>
+      <td class="num ${pct>.6?'pos':pct<.3?'neg':''}">${fmt(pct*100,0)} %</td>
+      <td class="num">${fmt(o.kwh-o.sol)} kWh</td></tr>`;
+  });
+  tb+=`<tr style="font-weight:600"><td>Total</td><td class="num">${fmt(totK)}</td><td></td>
+    <td class="num">${fmt(names.reduce((a,n)=>a+bp[n].sol,0)/totK*100,0)} %</td>
+    <td class="num">${fmt(totK-names.reduce((a,n)=>a+bp[n].sol,0))} kWh</td></tr></tbody></table>
+    <p class="hint">Lecture annuelle, pas journalière. « Couvert par le solaire » inclut la batterie.
+    Un poste faiblement couvert est un poste à décaler vers les heures de production — ou à confier
+    au stockage si c'est impossible.</p>`;
+  let qt=`<details style="margin-top:12px"><summary>Détail quart d'heure par quart d'heure
+    (${fmt(dt._prodTotal,1)} kWh produits, ${fmt(load.reduce((a,b)=>a+b,0),1)} kWh consommés)
+    &nbsp;<button class="sm" onclick="copyQ()">copier</button></summary>
+    <table id="qtab" style="margin-top:8px"><thead><tr><th>Heure</th><th>Production</th>
+    <th>Consommation</th><th>Charge batt.</th><th>Décharge batt.</th><th>Niveau batt.</th>
+    <th>Réseau</th></tr></thead><tbody>`;
+  for(let q=0;q<Q;q++){
+    const hh=String(Math.floor(q/4)).padStart(2,'0')+':'+String((q%4)*15).padStart(2,'0');
+    const gr=s.gridS[q]*4;
+    qt+=`<tr><td>${hh}</td><td class="num">${fmt(s.prodS[q]*4,2)}</td>
+      <td class="num">${fmt(s.loadS[q]*4,2)}</td>
+      <td class="num">${s.chS[q]>0?fmt(s.chS[q]*4,2):''}</td>
+      <td class="num">${s.disS[q]>0?fmt(s.disS[q]*4,2):''}</td>
+      <td class="num">${r.cap?fmt(s.socS[q],2):''}</td>
+      <td class="num ${gr>0.001?'neg':gr<-0.001?'pos':''}">${Math.abs(gr)<0.001?'':fmt(gr,2)}</td></tr>`;
+  }
+  qt+=`</tbody></table><p class="hint">Puissances en kW, niveau de batterie en kWh.
+    Réseau : positif = prélevé, négatif = injecté.</p></details>`;
+  $('dayStats').innerHTML=tb+qt+`<table><tbody>
+   <tr><td>Production du jour</td><td class="num">${fmt(dt._prodTotal,1)} kWh</td>
+       <td>Consommation</td><td class="num">${fmt(load.reduce((a,b)=>a+b,0),1)} kWh</td></tr>
+   <tr><td>Prélevé au réseau</td><td class="num">${fmt(s.imp,1)} kWh</td>
+       <td>Injecté</td><td class="num">${fmt(s.exp,1)} kWh</td></tr>
+   <tr><td>Chargé en batterie</td><td class="num">${fmt(s.ch,1)} kWh</td>
+       <td>Restitué</td><td class="num">${fmt(s.dis,1)} kWh</td></tr>
+   </tbody></table>`;
+}
+
+function drawCF(cfg){
+  $('cfSel').innerHTML=RESULTS.map((r,i)=>`<option value="${i}">${r.cap?fmt(r.cap,0)+' kWh':'sans batterie'}</option>`).join('');
+  const i=+$('cfSel').dataset.v||0; $('cfSel').value=Math.min(i,RESULTS.length-1);
+  const r=RESULTS[$('cfSel').value]; if(!r) return;
+  const HZ=r.e.rows.length;
+  const keep=[]; for(let y=1;y<=Math.min(10,HZ);y++) keep.push(y);
+  for(let y=15;y<=HZ;y+=5) keep.push(y);
+  if(!keep.includes(HZ)) keep.push(HZ);
+  let h=`<table><thead><tr><th>Année</th><th>Gain énergie</th><th>Certificats verts</th>
+    <th>Coûts</th><th>Net</th><th>Cumulé</th></tr></thead><tbody>`;
+  for(const row of r.e.rows){
+    if(!keep.includes(row.y)) continue;
+    h+=`<tr><td>${row.y}</td><td class="num">${fmt(row.g)} €</td><td class="num">${fmt(row.cv)} €</td>
+      <td class="num ${row.c>200?'neg':''}">${fmt(row.c)} €</td><td class="num">${fmt(row.net)} €</td>
+      <td class="num ${row.cum>0?'pos':'neg'}">${fmt(row.cum)} €</td></tr>`;
+  }
+  h+=`</tbody></table><p class="hint">Investissement ${fmt(r.capex)} € — TRI ${fmt(r.e.irr*100,1)} % —
+    VAN ${fmt(r.e.npv)} € — retour ${r.e.pb?fmt(r.e.pb,1)+' ans':'jamais'} — horizon ${HZ} ans</p>`;
+  $('cf').innerHTML=h;
+}
+$('cfSel').addEventListener('change',function(){this.dataset.v=this.value;drawCF(readCfg())});
+$('evOn').addEventListener('change',function(){$('evBox').style.display=this.checked?'block':'none';run()});
+let _t=null,_left=0,_tick=null;
+function schedule(){
+  const d=Math.max(0,+($('debounce').value||0));
+  clearTimeout(_t); clearInterval(_tick);
+  if(d<0.2){ run(); return; }
+  _left=d; $('out').style.opacity='.45';
+  const upd=()=>{ $('recalc').textContent=`recalcul dans ${_left.toFixed(0)} s`; };
+  upd();
+  _tick=setInterval(()=>{ _left=Math.max(0,_left-1); upd(); },1000);
+  _t=setTimeout(()=>{ clearInterval(_tick); $('recalc').textContent='recalculer';
+                      $('out').style.opacity='1'; run(); sauverCourant(); }, d*1000);
+}
+function runNow(){ clearTimeout(_t); clearInterval(_tick);
+  $('recalc').textContent='recalculer'; $('out').style.opacity='1'; run(); sauverCourant(); }
+document.addEventListener('input',e=>{
+  if(!e.target.closest('#params')) return;
+  if(e.target.id==='debounce') return;
+  schedule();
+});
+bootScen();
+</script>
+</body>
+</html>
