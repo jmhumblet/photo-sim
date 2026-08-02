@@ -219,7 +219,7 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
 
   <div class="card">
     <h2>Batterie</h2>
-    <label>Options de batterie — capacité <b>nominale</b> et prix du devis</label>
+    <label>Options de batterie — capacités <b>nominale</b> et <b>utile</b> de la fiche technique, prix du devis</label>
     <table><thead><tr><th>Option</th><th>Nominale</th><th>Utile</th><th>Prix TVAC</th>
     <th>DoD</th><th>€/kWh utile</th><th></th></tr></thead>
     <tbody id="battBody"></tbody></table>
@@ -409,9 +409,11 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-top:6px}
 
   <div class="card">
     <h2>Chronique année par année</h2>
-    <label style="margin-top:0">Capacité affichée</label>
-    <select id="cfSel" style="max-width:220px"></select>
-    <div id="cf" style="margin-top:10px"></div>
+    <p class="hint" style="margin-top:0">Toutes les options côte à côte. Les colonnes qui ne dépendent
+    pas de la batterie — l'année et les certificats verts — ne sont écrites qu'une fois.
+    Le tableau défile horizontalement si l'écran est trop étroit.</p>
+    <div id="cf" style="margin-top:10px;overflow-x:auto"></div>
+    <div id="cfLeg" class="hint" style="margin-top:10px"></div>
   </div>
 </div>
 </div>
@@ -916,6 +918,25 @@ function mcStart(){
 }
 function mcStop(){ MCstate.running=false; $('mcGo').textContent='reprendre'; $('mcGo').onclick=mcStart; }
 
+function mcHover(pk,se){
+  const box=$('mcBoxInfo'); if(!box) return;
+  if(!pk){ box.innerHTML=`<span class="hint">Survolez une boîte pour en lire le détail
+    — les cinq centiles, la moyenne et l'écart entre une bonne et une mauvaise année.</span>`; return; }
+  const p=PROFILS_MC.find(x=>x.k===pk); const R=MCstate.res[pk];
+  const arr=se==='1'?R.bill1:R.bill0;
+  const a=q(arr,.05),b=q(arr,.25),m=q(arr,.5),c=q(arr,.75),d=q(arr,.95);
+  const col=se==='1'?'#2e7d8a':'var(--accent)';
+  box.innerHTML=`<div style="border-left:3px solid ${col};padding-left:8px;font-size:12px">
+    <b>${p.n} — ${se==='1'?'avec batterie':'sans batterie'}</b>
+    &nbsp;·&nbsp; ${arr.length} années simulées
+    <table style="font-size:12px;margin-top:4px"><tbody><tr>
+      <td>P5 <b>${fmt(a)} €</b></td><td>P25 <b>${fmt(b)} €</b></td>
+      <td>médiane <b>${fmt(m)} €</b></td><td>P75 <b>${fmt(c)} €</b></td>
+      <td>P95 <b>${fmt(d)} €</b></td><td>moyenne <b>${fmt(moy(arr))} €</b></td>
+    </tr></tbody></table>
+    <span class="hint">Une année sur dix sort de l'intervalle ${fmt(a)} – ${fmt(d)} €,
+    soit ${fmt(d-a)} € entre une très bonne et une très mauvaise année.</span></div>`;
+}
 function mcRender(cfg,nom,capU){
   if(MCstate.done<2) return;
   const ref=PROFILS_MC[0].k;
@@ -940,29 +961,47 @@ function mcRender(cfg,nom,capU){
   // boîtes à moustaches : sans batterie et avec batterie, sur la même échelle
   const all=PROFILS_MC.flatMap(p=>MCstate.res[p.k].bill0.concat(MCstate.res[p.k].bill1));
   const mn=Math.min(...all), mx=Math.max(...all), pad=(mx-mn)*0.04;
-  const W=680, L=118, R=58, BAND=66, TOP=34;
-  const X=v=>L+(W-L-R)*(v-mn+pad)/Math.max(1e-6,(mx-mn)+2*pad);
-  const H=TOP+PROFILS_MC.length*BAND+30;
+  const v0=mn-pad, v1=mx+pad;
+  const W=680, L=118, R=58, BAND=76, TOP=40;
+  const X=v=>L+(W-L-R)*(v-v0)/Math.max(1e-6,v1-v0);
+  const H=TOP+PROFILS_MC.length*BAND+34;
+  // graduation sur des valeurs rondes : pas de 1-2-5 × 10^n, 5 à 8 repères
+  const brut=(v1-v0)/6, expo=Math.pow(10,Math.floor(Math.log10(brut)));
+  const rel=brut/expo, pas=(rel<1.5?1:rel<3?2:rel<7?5:10)*expo;
+  const ticks=[]; for(let t=Math.ceil(v0/pas)*pas; t<=v1+1e-9; t+=pas) ticks.push(t);
+  const yb=TOP+PROFILS_MC.length*BAND+4;
+
   let g=`<svg viewBox="0 0 ${W} ${H}" role="img"><title>Dispersion du coût annuel de l'énergie</title>`;
+  // repères verticaux, dessinés d'abord pour rester en arrière-plan
+  ticks.forEach(t=>{ g+=`<line x1="${X(t)}" y1="${TOP-8}" x2="${X(t)}" y2="${yb}"
+      stroke="var(--line)" stroke-dasharray="2 4" opacity=".8"/>`; });
   g+=`<rect x="${L}" y="14" width="10" height="10" fill="var(--accent)" opacity=".3"/>
       <text x="${L+15}" y="23" font-size="11" fill="var(--muted)">sans batterie</text>
       <rect x="${L+118}" y="14" width="10" height="10" fill="#2e7d8a" opacity=".3"/>
       <text x="${L+133}" y="23" font-size="11" fill="var(--muted)">avec batterie</text>`;
-  const boite=(arr,y,col)=>{
+
+  const boite=(arr,y,col,pk,se)=>{
     const a=q(arr,.05),b=q(arr,.25),m=q(arr,.5),c=q(arr,.75),d=q(arr,.95);
-    let t=`<line x1="${X(a)}" y1="${y}" x2="${X(d)}" y2="${y}" stroke="${col}" opacity=".55"/>`;
+    const inf=`P5 ${fmt(a)} € · P25 ${fmt(b)} € · médiane ${fmt(m)} € · P75 ${fmt(c)} € · P95 ${fmt(d)} €`;
+    let t=`<g class="bx" onmouseenter="mcHover('${pk}','${se}')" onmouseleave="mcHover()">
+      <title>${inf}</title>
+      <rect x="${X(a)-6}" y="${y-12}" width="${X(d)-X(a)+12}" height="24" fill="transparent"/>`;
+    t+=`<line x1="${X(a)}" y1="${y}" x2="${X(d)}" y2="${y}" stroke="${col}" opacity=".55"/>`;
     t+=`<line x1="${X(a)}" y1="${y-4}" x2="${X(a)}" y2="${y+4}" stroke="${col}" opacity=".55"/>`;
     t+=`<line x1="${X(d)}" y1="${y-4}" x2="${X(d)}" y2="${y+4}" stroke="${col}" opacity=".55"/>`;
     t+=`<rect x="${X(b)}" y="${y-8}" width="${Math.max(1,X(c)-X(b))}" height="16" fill="${col}" opacity=".3" rx="2"/>`;
     t+=`<line x1="${X(m)}" y1="${y-10}" x2="${X(m)}" y2="${y+10}" stroke="${col}" stroke-width="2.5"/>`;
+    // bornes chiffrées sous la moustache, en petit
+    t+=`<text x="${X(a)}" y="${y+19}" font-size="9" fill="var(--muted)" text-anchor="middle">${fmt(a)}</text>`;
+    t+=`<text x="${X(d)}" y="${y+19}" font-size="9" fill="var(--muted)" text-anchor="middle">${fmt(d)}</text>`;
+    t+=`</g>`;
     return {svg:t, med:m};
   };
   PROFILS_MC.forEach((p,i)=>{
-    const R2=MCstate.res[p.k], y0=TOP+i*BAND+16, y1=y0+24;
-    const s0=boite(R2.bill0,y0,'var(--accent)'), s1=boite(R2.bill1,y1,'#2e7d8a');
+    const R2=MCstate.res[p.k], y0=TOP+i*BAND+14, y1=y0+30;
+    const s0=boite(R2.bill0,y0,'var(--accent)',p.k,'0'), s1=boite(R2.bill1,y1,'#2e7d8a',p.k,'1');
     if(i) g+=`<line x1="0" y1="${TOP+i*BAND-6}" x2="${W}" y2="${TOP+i*BAND-6}" stroke="var(--line)"/>`;
-    g+=`<text x="0" y="${y0+16}" font-size="12" fill="var(--text-primary)" font-weight="500">${p.n}</text>`;
-    // flèche reliant les deux médianes : l'économie apportée par la batterie
+    g+=`<text x="0" y="${(y0+y1)/2+4}" font-size="12" fill="var(--text-primary)" font-weight="500">${p.n}</text>`;
     g+=`<line x1="${X(s1.med)}" y1="${(y0+y1)/2}" x2="${X(s0.med)}" y2="${(y0+y1)/2}"
          stroke="#2e7d8a" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/>`;
     g+=`<text x="${(X(s0.med)+X(s1.med))/2}" y="${(y0+y1)/2-4}" font-size="10" fill="#2e7d8a"
@@ -971,12 +1010,12 @@ function mcRender(cfg,nom,capU){
     g+=`<text x="${W-R+6}" y="${y0+4}" font-size="11" fill="var(--muted)">${fmt(s0.med)} €</text>`;
     g+=`<text x="${W-R+6}" y="${y1+4}" font-size="11" fill="#2e7d8a">${fmt(s1.med)} €</text>`;
   });
-  const yb=TOP+PROFILS_MC.length*BAND+4;
   g+=`<line x1="${L}" y1="${yb}" x2="${W-R}" y2="${yb}" stroke="var(--line)"/>`;
-  [0,.25,.5,.75,1].forEach(f=>{const v=mn-pad+((mx-mn)+2*pad)*f;
-    g+=`<line x1="${X(v)}" y1="${yb}" x2="${X(v)}" y2="${yb+4}" stroke="var(--line)"/>
-        <text x="${X(v)}" y="${yb+17}" font-size="10" fill="var(--muted)" text-anchor="middle">${fmt(v)} €</text>`;});
+  ticks.forEach(t=>{
+    g+=`<line x1="${X(t)}" y1="${yb}" x2="${X(t)}" y2="${yb+4}" stroke="var(--line)"/>
+        <text x="${X(t)}" y="${yb+17}" font-size="10" fill="var(--muted)" text-anchor="middle">${fmt(t)} €</text>`;});
   $('mcBox').innerHTML=g+'</svg>';
+  mcHover();
 
   // conclusion
   const mR=moy(MCstate.res.rigoureux.bill0), mI=moy(MCstate.res.insouciant.bill0);
@@ -1107,12 +1146,16 @@ function openMC(){
   const ids=Object.keys(snap.inp).map(id=>`<input id="${id}" value="${String(snap.inp[id]).replace(/"/g,'&quot;')}">`).join('')
     +Object.keys(snap.chk).map(id=>`<input type="checkbox" id="${id}" ${snap.chk[id]?'checked':''}>`).join('')
     +['prodHint','dtBody','applList','consHint','battHint','evBox','evDayLbl','baseDayLbl','kpi','cmp',
-      'marg','dayTabs','chart','dayStats','dayKpi','cfSel','cf','recalc','out']
+      'marg','dayTabs','chart','dayStats','dayKpi','cf','cfLeg','battBody','battAlerte','recalc','out']
       .map(id=>`<div id="${id}"></div>`).join('');
   const html=`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
 <title>Étude de robustesse — simulateur PV</title><style>${style}
 .mcbar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:10px 0}
 .mcbar div{height:100%;background:var(--accent);width:0%;transition:width .2s}
+.bx{cursor:crosshair}
+.bx:hover rect{opacity:.55}
+.bx:hover line{opacity:1}
+.bx:hover text{fill:var(--text-primary)}
 .kpi div b{font-size:16px}
 </style></head><body>
 <header><h1>Étude de robustesse</h1>
@@ -1140,10 +1183,13 @@ function openMC(){
   </div>
   <div class="card"><h2>Résultats</h2><div id="mcTab"></div>
     <div id="mcBox" style="margin-top:16px"></div>
+    <div id="mcBoxInfo" style="min-height:46px;margin-top:6px"></div>
     <p class="hint">Chaque profil montre deux distributions sur la même échelle : la facture
     sans batterie en vert, avec batterie en bleu-vert. La boîte couvre la moitié centrale des
     années simulées, le trait vertical marque la médiane, les moustaches les 5e et 95e centiles.
-    Le trait pointillé entre les deux médianes chiffre l'économie apportée par le stockage.</p>
+    Le trait pointillé entre les deux médianes chiffre l'économie apportée par le stockage.<br>
+    <b>Survolez une boîte</b> pour lire les cinq centiles exacts ; les repères verticaux en
+    arrière-plan donnent l'échelle.</p>
   </div>
   <div class="card"><h2>Ce qu'il faut en retenir</h2><div id="mcConc"></div></div>
 </div>
@@ -1583,26 +1629,74 @@ function drawChart(){
 }
 
 function drawCF(cfg){
-  $('cfSel').innerHTML=RESULTS.map((r,i)=>`<option value="${i}">${r.cap?fmt(r.cap,0)+' kWh':'sans batterie'}</option>`).join('');
-  const i=+$('cfSel').dataset.v||0; $('cfSel').value=Math.min(i,RESULTS.length-1);
-  const r=RESULTS[$('cfSel').value]; if(!r) return;
-  const HZ=r.e.rows.length;
+  if(!RESULTS.length){ $('cf').innerHTML=''; $('cfLeg').innerHTML=''; return; }
+  const HZ=RESULTS[0].e.rows.length;
   const keep=[]; for(let y=1;y<=Math.min(10,HZ);y++) keep.push(y);
   for(let y=15;y<=HZ;y+=5) keep.push(y);
   if(!keep.includes(HZ)) keep.push(HZ);
-  let h=`<table><thead><tr><th>Année</th><th>Gain énergie</th><th>Certificats verts</th>
-    <th>Coûts</th><th>Net</th><th>Cumulé</th></tr></thead><tbody>`;
-  for(const row of r.e.rows){
-    if(!keep.includes(row.y)) continue;
-    h+=`<tr><td>${row.y}</td><td class="num">${fmt(row.g)} €</td><td class="num">${fmt(row.cv)} €</td>
-      <td class="num ${row.c>200?'neg':''}">${fmt(row.c)} €</td><td class="num">${fmt(row.net)} €</td>
-      <td class="num ${row.cum>0?'pos':'neg'}">${fmt(row.cum)} €</td></tr>`;
+  const nomOpt=r=>r.cap? (r.lab||fmt(r.nom,1)+' kWh') : 'Sans batterie';
+
+  let h=`<table style="font-size:12px"><thead>
+    <tr><th rowspan="2">Année</th><th rowspan="2" class="num">Certificats<br>verts</th>`
+    +RESULTS.map((r,i)=>`<th colspan="4" class="num"
+        style="text-align:center;border-left:2px solid var(--line)">${nomOpt(r)}<br><span style="font-weight:400;color:var(--muted)">${r.cap?fmt(r.cap,2)+' kWh utiles · '+fmt(r.prix)+' €':'panneaux seuls'}</span></th>`).join('')
+    +`</tr><tr>`
+    +RESULTS.map(()=>`<th class="num" style="border-left:2px solid var(--line)">Gain</th>
+        <th class="num">Coûts</th><th class="num">Net</th><th class="num">Cumulé</th>`).join('')
+    +`</tr></thead><tbody>`;
+
+  for(const y of keep){
+    const cv=RESULTS[0].e.rows[y-1].cv;
+    h+=`<tr><td>${y}</td><td class="num">${fmt(cv)} €</td>`;
+    for(const r of RESULTS){
+      const row=r.e.rows[y-1];
+      h+=`<td class="num" style="border-left:2px solid var(--line)">${fmt(row.g)} €</td>
+        <td class="num ${row.c>200?'neg':''}">${fmt(row.c)} €</td>
+        <td class="num">${fmt(row.net)} €</td>
+        <td class="num ${row.cum>0?'pos':'neg'}">${fmt(row.cum)} €</td>`;
+    }
+    h+='</tr>';
   }
-  h+=`</tbody></table><p class="hint">Investissement ${fmt(r.capex)} € — TRI ${fmt(r.e.irr*100,1)} % —
-    VAN ${fmt(r.e.npv)} € — retour ${r.e.pb?fmt(r.e.pb,1)+' ans':'jamais'} — horizon ${HZ} ans</p>`;
+  h+=`</tbody><tfoot><tr><td colspan="2"><b>Investissement</b></td>`
+    +RESULTS.map(r=>`<td colspan="4" class="num" style="border-left:2px solid var(--line)">
+       ${fmt(r.capex)} €</td>`).join('')+`</tr>
+    <tr><td colspan="2"><b>TRI — VAN@${fmt(cfg.disc,1)} % — retour</b></td>`
+    +RESULTS.map(r=>`<td colspan="4" class="num" style="border-left:2px solid var(--line)">
+       ${fmt(r.e.irr*100,1)} % — ${fmt(r.e.npv)} € — ${r.e.pb?fmt(r.e.pb,1)+' ans':'jamais'}</td>`).join('')
+    +`</tr></tfoot></table>`;
   $('cf').innerHTML=h;
+
+  // légende
+  const anBat=RESULTS.some(r=>r.cap>0);
+  const remb=RESULTS.filter(r=>r.cap>0)
+    .map(r=>`${nomOpt(r)} ${fmt(r.prix*cfg.batPct/100)} €`).join(', ');
+  $('cfLeg').innerHTML=`<b>Ce que contient chaque colonne</b>
+   <table style="font-size:12px;margin-top:6px"><tbody>
+   <tr><td><b>Certificats verts</b></td><td>Production brute de l'année × ${fmt(cfg.cvRate,3)} CV/MWh
+     × ${fmt(cfg.cvPrice)} € pendant ${fmt(cfg.cvYears)} ans. Ils ne dépendent que des panneaux :
+     identiques pour toutes les options, d'où la colonne unique.</td></tr>
+   <tr><td><b>Gain</b></td><td>Facture évitée : électricité non achetée au réseau, plus l'injection
+     revendue. Indexé de ${fmt(cfg.infl,1)} %/an, diminué de ${fmt(cfg.degr,1)} %/an de perte de
+     rendement des panneaux${anBat?`, et pour les options avec batterie de ${fmt(cfg.battDegr,1)} %/an
+     de capacité utile perdue`:''}.</td></tr>
+   <tr><td><b>Coûts</b></td><td>Trois postes cumulés dans la même colonne :<br>
+     • <b>entretien et assurance</b> — ${fmt(cfg.maint)} €/an la première année, indexé 2 %/an,
+       tous les ans ;<br>
+     • <b>remplacement de l'onduleur</b> — ${fmt(cfg.invCost)} €, une seule fois, en année
+       ${fmt(cfg.invYear)} ;<br>
+     ${anBat?`• <b>remplacement de la batterie</b> — en année ${fmt(cfg.batYear)}, à ${fmt(cfg.batPct)} %
+       du prix d'achat (${remb}). La capacité utile repart alors de sa valeur neuve.`
+      :'• pas de remplacement de batterie dans les options affichées.'}<br>
+     Les cellules en rouge signalent une année qui porte un remplacement.</td></tr>
+   <tr><td><b>Net</b></td><td>Gain + certificats verts − coûts. C'est le flux de trésorerie réel
+     de l'année, hors investissement initial.</td></tr>
+   <tr><td><b>Cumulé</b></td><td>Somme des nets depuis le départ, <b>moins l'investissement</b>.
+     Il commence donc négatif ; l'année où il passe au vert est le temps de retour.</td></tr>
+   </tbody></table>
+   <p style="margin-top:6px">Tous les montants sont en euros courants — c'est-à-dire tels que vous
+   les paierez à la date indiquée, inflation comprise. Seule la VAN les ramène à leur valeur
+   d'aujourd'hui, au taux d'actualisation de ${fmt(cfg.disc,1)} %.</p>`;
 }
-$('cfSel').addEventListener('change',function(){this.dataset.v=this.value;drawCF(readCfg())});
 $('evOn').addEventListener('change',function(){$('evBox').style.display=this.checked?'block':'none';run()});
 let _t=null,_left=0,_tick=null;
 function schedule(){
