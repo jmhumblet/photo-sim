@@ -1116,22 +1116,27 @@ function mcRender(cfg,nom,capU){
   const ecart=mI-mR;
   const disp=q(MCstate.res.normal.bill0,.9)-q(MCstate.res.normal.bill0,.1);
   const gR=moy(MCstate.res.rigoureux.gain), gI=moy(MCstate.res.insouciant.gain);
+  // Le verdict se juge en comparant l'écart de discipline à l'aléa météo, pas sur un
+  // seuil absolu : c'est la comparaison que la phrase énonce, elle doit donc la piloter.
+  const rap = disp>1 ? ecart/disp : (ecart>20?9:0);
+  const relM = ecart < disp*0.8 ? 'moins que'
+            : ecart <= disp*1.25 ? 'du même ordre que'
+            : 'davantage que';
+  const cadre = `<b>${fmt(ecart)} € par an</b> entre discipline stricte et insouciance totale,
+    soit ${relM} l'aléa météo (<b>${fmt(disp)} €</b> d'écart entre une bonne et une mauvaise année
+    pour un profil normal)`;
   let verdict;
-  if(ecart<25) verdict=`<b style="color:var(--accent)">Vos habitudes ne changent presque rien.</b>
-    Entre une discipline stricte et une insouciance totale, l'écart n'est que de
-    <b>${fmt(ecart)} € par an</b> — moins que la variabilité d'une année à l'autre
-    (${fmt(disp)} € entre une bonne et une mauvaise année). Vous pouvez vivre normalement.`;
-  else if(ecart<70) verdict=`<b style="color:var(--warn)">Vos habitudes comptent modérément.</b>
-    Passer d'une discipline stricte à l'insouciance coûte <b>${fmt(ecart)} € par an</b>.
-    C'est réel mais du même ordre que l'aléa météo (${fmt(disp)} € d'écart entre une bonne et une
-    mauvaise année) : cela ne mérite pas d'y penser chaque jour, seulement de garder le réflexe
-    de programmer les gros appareils en journée.`;
-  else verdict=`<b style="color:var(--bad)">Vos habitudes pèsent lourd.</b> L'écart atteint
-    <b>${fmt(ecart)} € par an</b> entre discipline et insouciance, nettement plus que l'aléa
-    météo (${fmt(disp)} €). Ici, programmer les appareils vaut vraiment la peine.`;
+  if(ecart<20 || rap<0.5) verdict=`<b style="color:var(--accent)">Vos habitudes ne changent
+    presque rien.</b> ${cadre}. Vous pouvez vivre normalement : la météo décidera de votre facture
+    bien plus que votre régularité.`;
+  else if(rap<1.2) verdict=`<b style="color:var(--warn)">Vos habitudes comptent modérément.</b>
+    ${cadre}. C'est réel, mais cela ne mérite pas d'y penser chaque jour — seulement de garder le
+    réflexe de programmer les gros appareils en journée.`;
+  else verdict=`<b style="color:var(--bad)">Vos habitudes pèsent lourd.</b> ${cadre}.
+    Ici, programmer les appareils vaut vraiment la peine.`;
   $('mcConc').innerHTML=`<p>${verdict}</p>
-    <p class="hint">Le gain apporté par la batterie de ${fmt(nom,1)} kWh nominaux
-    (${fmt(capU,2)} kWh utiles) passe de <b>${fmt(gR)} €/an</b> si vous êtes rigoureux à
+    <p class="hint">Le gain apporté par la batterie de <b>${fmt(capU,2)} kWh utiles</b>
+    passe de <b>${fmt(gR)} €/an</b> si vous êtes rigoureux à
     <b>${fmt(gI)} €/an</b> si vous ne l'êtes pas — la batterie
     ${gI>gR?'<b>rattrape</b> une partie de vos écarts, elle est donc plus utile à qui manque de régularité'
            :'perd de son intérêt quand la consommation est déjà bien placée'}.
@@ -1141,11 +1146,21 @@ function mcRender(cfg,nom,capU){
     +(cfg.evOn?`<p>${(()=>{
       const sR=moy(MCstate.res.rigoureux.evSol0), sI=moy(MCstate.res.insouciant.evSol0);
       const lo=q(MCstate.res.normal.evSol0,.10), hi=q(MCstate.res.normal.evSol0,.90);
+      const dDisc=sR-sI, dAn=hi-lo;
+      const qui = dDisc > dAn*1.25
+        ? `c'est votre régularité qui domine (${fmt(dDisc,0)} points d'écart contre ${fmt(dAn,0)}
+           points d'une année à l'autre)`
+        : dDisc < dAn*0.8
+        ? `c'est le rythme d'immobilisation de la voiture, pas votre discipline, qui domine
+           (${fmt(dAn,0)} points d'écart d'une année à l'autre contre ${fmt(dDisc,0)} points entre
+           les deux profils)`
+        : `les deux comptent autant (${fmt(dDisc,0)} points pour la discipline, ${fmt(dAn,0)} points
+           d'une année à l'autre)`;
       return `<b>Le véhicule roule au soleil à ${fmt(sR,0)} %</b> si vous rebranchez sans faute,
         ${fmt(sI,0)} % si vous y pensez rarement. D'une année à l'autre, cette part oscille entre
-        ${fmt(lo,0)} et ${fmt(hi,0)} % pour un profil normal : c'est le rythme d'immobilisation de
-        la voiture, pas votre discipline, qui domine. Une voiture souvent au garage capte le
-        surplus d'été ; une voiture partie toute la journée le laisse au réseau.`;})()}</p>`:'');
+        ${fmt(lo,0)} et ${fmt(hi,0)} % pour un profil normal : ${qui}. Une voiture souvent au
+        garage capte le surplus d'été ; une voiture partie toute la journée le laisse au
+        réseau.`;})()}</p>`:'');
 }
 
 /* ---------- ouverture de l'onglet d'étude ---------- */
